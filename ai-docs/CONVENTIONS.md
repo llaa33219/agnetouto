@@ -34,7 +34,7 @@ async def call(self, context, tools, agent, provider):
   ```python
   from typing import TYPE_CHECKING
   if TYPE_CHECKING:
-      from agnetouto.agent import Agent
+      from agentouto.agent import Agent
   ```
 
 ---
@@ -136,11 +136,11 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from agnetouto.agent import Agent
-from agnetouto.context import Context, ToolCall
-from agnetouto.exceptions import ProviderError
-from agnetouto.provider import Provider
-from agnetouto.providers import LLMResponse, ProviderBackend
+from agentouto.agent import Agent
+from agentouto.context import Context, ToolCall
+from agentouto.exceptions import ProviderError
+from agentouto.provider import Provider
+from agentouto.providers import LLMResponse, ProviderBackend
 ```
 
 ### 모듈 프라이빗 함수
@@ -159,7 +159,7 @@ def _build_messages(context: Context) -> list[dict[str, Any]]:  # 모듈 프라�
 ```python
 def get_backend(kind: str) -> ProviderBackend:
     if kind == "openai":
-        from agnetouto.providers.openai import OpenAIBackend
+        from agentouto.providers.openai import OpenAIBackend
         return OpenAIBackend()
 ```
 
@@ -258,11 +258,11 @@ class MockBackend(ProviderBackend):
 `get_backend`를 패치하여 MockBackend를 주입한다:
 
 ```python
-with patch("agnetouto.router.get_backend", return_value=mock):
+with patch("agentouto.router.get_backend", return_value=mock):
     result = await async_run(...)
 ```
 
-패치 위치는 `agnetouto.router.get_backend` (사용하는 쪽에서 패치).
+패치 위치는 `agentouto.router.get_backend` (사용하는 쪽에서 패치).
 
 ### 헬퍼 함수
 
@@ -287,7 +287,7 @@ def _call_agent(agent_name, message)                 # 에이전트 호출
 └── publish.yml  # release 생성시: PyPI Trusted Publisher로 자동 배포
 ```
 
-- CI: `pip install -e '.[dev]'` → `pytest tests/ -v` → `mypy agnetouto/`
+- CI: `pip install -e '.[dev]'` → `pytest tests/ -v` → `mypy agentouto/`
 - CD: `python -m build` → `pypa/gh-action-pypi-publish` (OIDC, 토큰 불필요)
 
 ---

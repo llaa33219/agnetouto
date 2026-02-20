@@ -73,7 +73,7 @@
 
 - [x] CI/CD 설정 — GitHub Actions (CI: test + mypy, CD: PyPI Trusted Publisher)
 - [x] 테스트 작성 — 61개 테스트 (pytest + pytest-asyncio, MockBackend 기반)
-- [x] GitHub 레포 공개 — `llaa33219/agnetouto`
+- [x] GitHub 레포 공개 — `llaa33219/agentouto`
 - [ ] PyPI 공개 — Trusted Publisher 설정 후 릴리스 시 자동 배포
 - [ ] 사용자 문서 (예제 중심)
 - [ ] API 레퍼런스 문서 자동 생성

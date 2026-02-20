@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from agnetouto.event_log import EventLog
+from agentouto.event_log import EventLog
 
 
 @dataclass

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from agnetouto.agent import Agent
-from agnetouto.context import Context, ContextMessage, ToolCall
-from agnetouto.message import Message
-from agnetouto.provider import Provider
-from agnetouto.tool import Tool
+from agentouto.agent import Agent
+from agentouto.context import Context, ContextMessage, ToolCall
+from agentouto.message import Message
+from agentouto.provider import Provider
+from agentouto.tool import Tool
 
 
 # --- Message ---

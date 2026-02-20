@@ -5,10 +5,10 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from agnetouto.agent import Agent
-    from agnetouto.context import Context, ToolCall
-    from agnetouto.provider import Provider
-    from agnetouto.tool import Tool
+    from agentouto.agent import Agent
+    from agentouto.context import Context, ToolCall
+    from agentouto.provider import Provider
+    from agentouto.tool import Tool
 
 
 class LLMResponse:
@@ -49,13 +49,13 @@ class ProviderBackend(ABC):
 
 def get_backend(kind: str) -> ProviderBackend:
     if kind == "openai":
-        from agnetouto.providers.openai import OpenAIBackend
+        from agentouto.providers.openai import OpenAIBackend
         return OpenAIBackend()
     elif kind == "anthropic":
-        from agnetouto.providers.anthropic import AnthropicBackend
+        from agentouto.providers.anthropic import AnthropicBackend
         return AnthropicBackend()
     elif kind == "google":
-        from agnetouto.providers.google import GoogleBackend
+        from agentouto.providers.google import GoogleBackend
         return GoogleBackend()
     else:
         raise ValueError(f"Unknown provider kind: {kind}")

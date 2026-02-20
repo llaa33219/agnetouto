@@ -7,21 +7,21 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from agnetouto._constants import CALL_AGENT, FINISH
-from agnetouto.agent import Agent
-from agnetouto.context import Context, ToolCall
-from agnetouto.event_log import AgentEvent, EventLog
-from agnetouto.exceptions import ToolError
-from agnetouto.message import Message
-from agnetouto.provider import Provider
-from agnetouto.router import Router
-from agnetouto.tool import Tool
-from agnetouto.tracing import Trace
+from agentouto._constants import CALL_AGENT, FINISH
+from agentouto.agent import Agent
+from agentouto.context import Context, ToolCall
+from agentouto.event_log import AgentEvent, EventLog
+from agentouto.exceptions import ToolError
+from agentouto.message import Message
+from agentouto.provider import Provider
+from agentouto.router import Router
+from agentouto.tool import Tool
+from agentouto.tracing import Trace
 
 if TYPE_CHECKING:
-    from agnetouto.streaming import StreamEvent
+    from agentouto.streaming import StreamEvent
 
-logger = logging.getLogger("agnetouto")
+logger = logging.getLogger("agentouto")
 
 
 @dataclass
@@ -193,7 +193,7 @@ class Runtime:
     async def execute_stream(
         self, agent: Agent, forward_message: str
     ) -> AsyncIterator[StreamEvent]:
-        from agnetouto.streaming import StreamEvent
+        from agentouto.streaming import StreamEvent
 
         call_id = uuid.uuid4().hex
         self._messages.append(
@@ -231,7 +231,7 @@ class Runtime:
         call_id: str,
         parent_call_id: str | None,
     ) -> AsyncIterator[StreamEvent]:
-        from agnetouto.streaming import StreamEvent
+        from agentouto.streaming import StreamEvent
 
         system_prompt = self._router.build_system_prompt(agent)
         context = Context(system_prompt)

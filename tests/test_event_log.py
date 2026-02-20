@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from agnetouto.event_log import AgentEvent, EventLog
-from agnetouto.tracing import Span, Trace
+from agentouto.event_log import AgentEvent, EventLog
+from agentouto.tracing import Span, Trace
 
 
 def _make_event(

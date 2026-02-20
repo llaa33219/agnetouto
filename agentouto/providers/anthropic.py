@@ -4,11 +4,11 @@ from typing import Any
 
 from anthropic import AsyncAnthropic
 
-from agnetouto.agent import Agent
-from agnetouto.context import Context, ToolCall
-from agnetouto.exceptions import ProviderError
-from agnetouto.provider import Provider
-from agnetouto.providers import LLMResponse, ProviderBackend
+from agentouto.agent import Agent
+from agentouto.context import Context, ToolCall
+from agentouto.exceptions import ProviderError
+from agentouto.provider import Provider
+from agentouto.providers import LLMResponse, ProviderBackend
 
 
 class AnthropicBackend(ProviderBackend):

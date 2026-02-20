@@ -5,12 +5,12 @@ from unittest.mock import patch
 
 import pytest
 
-from agnetouto.agent import Agent
-from agnetouto.context import Context, ToolCall
-from agnetouto.provider import Provider
-from agnetouto.providers import LLMResponse, ProviderBackend
-from agnetouto.runtime import RunResult, async_run
-from agnetouto.tool import Tool
+from agentouto.agent import Agent
+from agentouto.context import Context, ToolCall
+from agentouto.provider import Provider
+from agentouto.providers import LLMResponse, ProviderBackend
+from agentouto.runtime import RunResult, async_run
+from agentouto.tool import Tool
 
 
 class MockBackend(ProviderBackend):
@@ -120,7 +120,7 @@ class TestSingleAgentTextResponse:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_text("Hello from LLM")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Say hello",
@@ -137,7 +137,7 @@ class TestSingleAgentFinish:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_finish("Final answer")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Give me the answer",
@@ -157,7 +157,7 @@ class TestSingleAgentToolCall:
             _tool_call("search", "tc1", query="AI trends"),
             _finish("Based on search: AI is trending"),
         ])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Search for AI trends",
@@ -183,7 +183,7 @@ class TestMultiAgent:
             _finish("I helped you"),
             _finish("Done with help from B"),
         ])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Do something complex",
@@ -201,7 +201,7 @@ class TestDebugMode:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_finish("debug result")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Test debug",
@@ -226,7 +226,7 @@ class TestDebugMode:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_finish("result")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Test",
@@ -246,7 +246,7 @@ class TestDebugMode:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_finish("traced")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Trace me",
@@ -264,7 +264,7 @@ class TestDebugMode:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_finish("traced")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Trace me",
@@ -281,7 +281,7 @@ class TestDebugMode:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_finish("no debug")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="No debug",
@@ -306,7 +306,7 @@ class TestDebugMultiAgent:
             _finish("Helped"),
             _finish("All done"),
         ])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Start",
@@ -339,7 +339,7 @@ class TestParallelToolCalls:
             ),
             _finish("Got both results"),
         ])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Do two things",
@@ -357,7 +357,7 @@ class TestMessagesAlwaysPopulated:
         self, agent_a: Agent, provider: Provider, search_tool: Tool,
     ) -> None:
         mock = MockBackend([_finish("result")])
-        with patch("agnetouto.router.get_backend", return_value=mock):
+        with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
                 entry=agent_a,
                 message="Hello",

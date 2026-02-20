@@ -34,7 +34,7 @@ AgentOutO rejects the orchestrator pattern used by existing frameworks (CrewAI, 
 ## Installation
 
 ```bash
-pip install agnetouto
+pip install agentouto
 ```
 
 Requires Python ≥ 3.11.
@@ -44,7 +44,7 @@ Requires Python ≥ 3.11.
 ## Quick Start
 
 ```python
-from agnetouto import Agent, Tool, Provider, run
+from agentouto import Agent, Tool, Provider, run
 
 # Provider — API connection info only
 openai = Provider(name="openai", kind="openai", api_key="sk-...")
@@ -153,7 +153,7 @@ User→A and A→B use the **exact same mechanism**. There is no special user pr
 Providers hold API credentials. No model settings, no inference config.
 
 ```python
-from agnetouto import Provider
+from agentouto import Provider
 
 openai = Provider(name="openai", kind="openai", api_key="sk-...")
 anthropic = Provider(name="anthropic", kind="anthropic", api_key="sk-ant-...")
@@ -173,7 +173,7 @@ local = Provider(name="local", kind="openai", base_url="http://localhost:11434/v
 ### Agent — Model Settings Live Here
 
 ```python
-from agnetouto import Agent
+from agentouto import Agent
 
 agent = Agent(
     name="researcher",
@@ -215,7 +215,7 @@ See [`ai-docs/PROVIDER_BACKENDS.md`](./ai-docs/PROVIDER_BACKENDS.md) for full ma
 ### Tool — Global, No Per-Agent Restrictions
 
 ```python
-from agnetouto import Tool
+from agentouto import Tool
 
 @Tool
 def search_web(query: str) -> str:
@@ -263,7 +263,7 @@ Two types. No exceptions.
 
 ```python
 import asyncio
-from agnetouto import async_run
+from agentouto import async_run
 
 result = await async_run(
     entry=researcher,
@@ -279,7 +279,7 @@ result = await async_run(
 ## Package Structure
 
 ```
-agnetouto/
+agentouto/
 ├── __init__.py          # Public API: Agent, Tool, Provider, run, async_run, Message, RunResult
 ├── agent.py             # Agent dataclass
 ├── tool.py              # Tool decorator/class with auto JSON schema generation

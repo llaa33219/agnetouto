@@ -30,4 +30,4 @@ jobs:
         run: pytest tests/ -v
 
       - name: Type check
-        run: mypy agnetouto/ --ignore-missing-imports
+        run: mypy agentouto/ --ignore-missing-imports

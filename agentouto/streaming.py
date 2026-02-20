@@ -4,9 +4,9 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from agnetouto.agent import Agent
-from agnetouto.provider import Provider
-from agnetouto.tool import Tool
+from agentouto.agent import Agent
+from agentouto.provider import Provider
+from agentouto.tool import Tool
 
 
 @dataclass
@@ -23,8 +23,8 @@ async def async_run_stream(
     tools: list[Tool],
     providers: list[Provider],
 ) -> AsyncIterator[StreamEvent]:
-    from agnetouto.router import Router
-    from agnetouto.runtime import Runtime
+    from agentouto.router import Router
+    from agentouto.runtime import Runtime
 
     router = Router(agents, tools, providers)
     runtime = Runtime(router)

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agnetouto"
+name = "agentouto"
 version = "0.2.0"
 description = "Multi-agent Python SDK with peer-to-peer agent communication"
 readme = "README.md"

@@ -7,7 +7,7 @@
 ## 1. 패키지 구조
 
 ```
-agnetouto/
+agentouto/
 ├── __init__.py          # 공개 API 엑스포트
 ├── _constants.py        # 내부 상수 (CALL_AGENT, FINISH)
 ├── agent.py             # Agent 데이터클래스
@@ -32,7 +32,7 @@ agnetouto/
 
 ## 2. 공개 API
 
-`agnetouto/__init__.py`에서 엑스포트되는 공개 API:
+`agentouto/__init__.py`에서 엑스포트되는 공개 API:
 
 | 이름 | 타입 | 설명 |
 |------|------|------|
@@ -185,7 +185,7 @@ class Runtime:
 **디버그 모드:**
 - `debug=True` 시 `EventLog` 인스턴스를 생성하여 모든 이벤트를 기록
 - 실행 종료 시 `Trace` 빌드 후 `RunResult`에 포함
-- Python `logging` 모듈로 `agnetouto` 로거에 디버그 로그 출력
+- Python `logging` 모듈로 `agentouto` 로거에 디버그 로그 출력
 - `debug=False`일 때는 이벤트 기록을 건너뜀 (성능 영향 없음)
 
 **메시지 추적:**

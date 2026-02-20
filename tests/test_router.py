@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from agnetouto.agent import Agent
-from agnetouto.exceptions import RoutingError, ToolError
-from agnetouto.provider import Provider
-from agnetouto.router import Router
-from agnetouto.tool import Tool
+from agentouto.agent import Agent
+from agentouto.exceptions import RoutingError, ToolError
+from agentouto.provider import Provider
+from agentouto.router import Router
+from agentouto.tool import Tool
 
 
 def _make_router() -> Router:

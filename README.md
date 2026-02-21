@@ -1,24 +1,24 @@
 # AgentOutO
 
-**멀티 에이전트 특화 Python SDK — 오케스트레이터 없는 피어 간 자유 호출**
+**A multi-agent Python SDK — peer-to-peer free calls with no orchestrator.**
 
-A multi-agent Python SDK where every agent is equal. No orchestrator. No hierarchy. No restrictions.
+Every agent is equal. No orchestrator. No hierarchy. No restrictions.
 
 ---
 
-## 핵심 철학 (Core Philosophy)
+## Core Philosophy
 
 AgentOutO rejects the orchestrator pattern used by existing frameworks (CrewAI, AutoGen, etc.).
 
-> **모든 에이전트는 완전히 대등하다.** Base 에이전트가 존재하지 않는다.
+> **All agents are fully equal.** There is no base agent.
 >
-> **모든 에이전트는 모든 에이전트를 호출할 수 있다.** 호출 제한이 없다.
+> **Any agent can call any agent.** There are no call restrictions.
 >
-> **모든 에이전트는 모든 도구를 사용할 수 있다.** 도구 제한이 없다.
+> **Any agent can use any tool.** There are no tool restrictions.
 >
-> **메시지 프로토콜은 전달/반환 2종류뿐이다.**
+> **The message protocol has exactly two types: forward and return.**
 >
-> **사용자는 LLM이 없는 에이전트일 뿐이다.** 별도의 인터페이스, 프로토콜, 도구는 존재하지 않는다.
+> **The user is just an agent without an LLM.** No special interface, protocol, or tools exist for the user.
 
 | Existing Frameworks | AgentOutO |
 |---|---|
@@ -308,7 +308,7 @@ agentouto/
 | **3** | Multi-agent: call_agent + finish + message routing | ✅ Done |
 | **4** | Parallel calls: asyncio.gather concurrent execution | ✅ Done |
 | **5** | Streaming, logging, tracing, debug mode | ✅ Done |
-| **6** | CI/CD, tests, PyPI publish | 🔶 Partial (CI/CD + tests done, PyPI pending) |
+| **6** | CI/CD, tests, PyPI publish | ✅ Done |
 
 ---
 

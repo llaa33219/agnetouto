@@ -246,6 +246,56 @@ async def fetch_data(url: str) -> str:
 
 Tools are automatically converted to JSON schemas from function signatures and docstrings. All agents can use all tools.
 
+Tools can also return rich results with file attachments using `ToolResult`:
+
+```python
+from agentouto import Tool, ToolResult, Attachment
+
+@Tool
+def fetch_image(url: str) -> ToolResult:
+    """Fetch an image from URL."""
+    data = download_and_base64_encode(url)
+    return ToolResult(
+        content="Image fetched successfully.",
+        attachments=[Attachment(mime_type="image/png", data=data)],
+    )
+```
+
+When a tool returns `ToolResult` with attachments, the LLM can visually analyze the images. Regular `str` returns remain fully supported.
+
+### Multimodal Attachments
+
+Agents can receive file attachments (images, audio, video, PDFs) via the `Attachment` dataclass:
+
+```python
+@dataclass
+class Attachment:
+    mime_type: str                # "image/png", "audio/mp3", "video/mp4"
+    data: str | None = None       # base64-encoded data
+    url: str | None = None        # URL reference (mutually exclusive with data)
+    name: str | None = None       # optional filename
+```
+
+Pass attachments to `run()` or `async_run()`:
+
+```python
+from agentouto import run, Attachment
+
+result = run(
+    entry=vision_agent,
+    message="Analyze this image.",
+    agents=[vision_agent],
+    tools=[],
+    providers=[openai],
+    attachments=[
+        Attachment(mime_type="image/png", data=base64_string),
+        Attachment(mime_type="image/jpeg", url="https://example.com/photo.jpg"),
+    ],
+)
+```
+
+All three provider backends (OpenAI, Anthropic, Google) convert attachments to their native multimodal format automatically.
+
 ### Message — Forward and Return Only
 
 ```python
@@ -256,6 +306,7 @@ class Message:
     receiver: str
     content: str
     call_id: str  # Unique tracking ID
+    attachments: list[Attachment] | None = None
 ```
 
 Two types. No exceptions.
@@ -287,20 +338,41 @@ result = await async_run(
 )
 ```
 
+### Streaming
+
+```python
+from agentouto import async_run_stream
+
+async for event in async_run_stream(
+    entry=researcher,
+    message="Write an AI trends report.",
+    agents=[researcher, writer, reviewer],
+    tools=[search_web],
+    providers=[openai, anthropic, google],
+):
+    if event.type == "token":
+        print(event.data["token"], end="", flush=True)
+    elif event.type == "finish":
+        print(f"\n--- {event.agent_name} finished ---")
+```
+
 ---
 
 ## Package Structure
 
 ```
 agentouto/
-├── __init__.py          # Public API: Agent, Tool, Provider, run, async_run, Message, RunResult
+├── __init__.py          # Public API exports (Agent, Tool, Provider, Attachment, ToolResult, ...)
 ├── agent.py             # Agent dataclass
-├── tool.py              # Tool decorator/class with auto JSON schema generation
+├── tool.py              # Tool decorator/class with auto JSON schema, ToolResult
 ├── message.py           # Message dataclass (forward/return)
 ├── provider.py          # Provider dataclass (API connection info)
-├── context.py           # Per-agent conversation context management
+├── context.py           # Attachment, ContextMessage, per-agent conversation context
 ├── router.py            # Message routing, system prompt generation, tool schema building
 ├── runtime.py           # Agent loop engine, parallel execution, run()/async_run()
+├── streaming.py         # async_run_stream(), StreamEvent
+├── event_log.py         # AgentEvent, EventLog — structured event recording
+├── tracing.py           # Trace, Span — call tree builder from event logs
 ├── _constants.py        # Shared constants (CALL_AGENT, FINISH)
 ├── exceptions.py        # ProviderError, AgentError, ToolError, RoutingError
 └── providers/
@@ -322,6 +394,7 @@ agentouto/
 | **4** | Parallel calls: asyncio.gather concurrent execution | ✅ Done |
 | **5** | Streaming, logging, tracing, debug mode | ✅ Done |
 | **6** | CI/CD, tests, PyPI publish | ✅ Done |
+| **7** | Multimodal attachments (Attachment, ToolResult) | ✅ Done |
 
 ---
 

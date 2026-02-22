@@ -153,11 +153,19 @@ Anthropic은 OpenAI와 다른 구조를 사용한다:
 
 OpenAI의 `parameters` → Anthropic의 `input_schema`.
 
-### 응답 파싱
+### 응답 파싱 (스트리밍 기반)
 
-응답의 `content` 블록을 순회하며:
-- `type == "text"` → content_text
-- `type == "tool_use"` → ToolCall (id, name, input을 arguments로)
+`call()`과 `stream()` 모두 내부적으로 스트리밍 API (`stream=True`)를 사용한다. 공유 `_stream_response()` 제너레이터가 스트리밍 이벤트를 처리한다:
+
+- `content_block_start` (tool_use) → 도구 블록 등록 (id, name)
+- `content_block_delta` (text_delta) → 텍스트 누적 + yield
+- `content_block_delta` (input_json_delta) → 도구 입력 JSON 누적
+- 스트림 종료 시 → 누적된 JSON을 `json.loads()`로 파싱하여 ToolCall 생성
+
+`call()`은 `_stream_response()`를 소비하고 최종 `LLMResponse`만 반환한다.
+`stream()`은 `_stream_response()`를 그대로 re-yield한다 (텍스트 청크 실시간 전달).
+
+⚠️ **왜 `call()`도 스트리밍인가?** Anthropic SDK는 10분 이상 걸릴 수 있는 요청에 스트리밍을 **강제**한다. 비스트리밍 `create()`는 타임아웃 에러를 발생시킨다.
 
 ### Auto Max Tokens (Probe Trick)
 
@@ -302,6 +310,6 @@ Google 백엔드는 mime_type을 필터링하지 않으므로 모든 파일 타�
 ## 7. 알려진 제한사항
 
 1. **Google 전역 설정**: `genai.configure()`가 전역이므로 여러 Google Provider를 동시에 사용하면 충돌 가능.
-2. **스트리밍 부분 지원**: OpenAI 백엔드만 네이티브 스트리밍 구현. Anthropic, Google은 fallback (non-streaming 호출 후 단일 이벤트 반환).
+2. **스트리밍 부분 지원**: OpenAI, Anthropic 백엔드는 네이티브 스트리밍 구현. Google은 fallback (non-streaming 호출 후 단일 이벤트 반환).
 3. **멀티모달 프로바이더별 지원 범위**: 프로바이더별로 지원하는 첨부파일 타입이 다르다. OpenAI는 image/audio, Anthropic은 image/PDF, Google은 모든 타입. 지원되지 않는 mime_type의 첨부파일은 조용히 무시된다.
 4. **Anthropic max_tokens probe 레이스 컨디션**: 동일 모델에 대한 동시 호출 시 여러 번 probe가 실행될 수 있다. 첫 번째 성공 후 캐시되므로 이후는 발생하지 않는다.

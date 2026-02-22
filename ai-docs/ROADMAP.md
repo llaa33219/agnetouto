@@ -10,7 +10,7 @@
 
 **버전:** 0.5.0 (공개)
 
-**최종 업데이트:** Phase 10 완료 — 자동 최대 출력 토큰 + 안전한 JSON 파싱
+**최종 업데이트:** Phase 11 완료 — Anthropic 네이티브 스트리밍
 
 ---
 
@@ -120,6 +120,15 @@
 - [x] 마크다운 코드펜스 자동 제거
 - [x] 141개 테스트
 
+### Phase 11: Anthropic 네이티브 스트리밍 ✅
+
+- [x] `call()` 내부적으로 스트리밍 기반으로 변경 (10분 타임아웃 문제 해결)
+- [x] `stream()` 네이티브 구현 (텍스트 청크 실시간 yield)
+- [x] 공유 `_stream_response()` 제너레이터로 코드 중복 제거
+- [x] 스트리밍 이벤트 파싱: text_delta, input_json_delta, content_block_start
+- [x] probe trick 스트리밍 컨텍스트에서도 동작
+- [x] 141개 테스트
+
 ---
 
 ## 3. 미구현 기능
@@ -139,7 +148,7 @@
 |------|--------|------|
 | Google 전역 설정 충돌 | 중간 | `genai.configure()`가 전역이므로 여러 Google Provider 동시 사용 시 충돌 가능 |
 | 무한 루프 방지 없음 | 낮음 (설계 의도) | 시스템 레벨 제한 없음. instructions로만 제어. 철학적 결정. |
-| 스트리밍은 OpenAI만 네이티브 | 낮음 | Anthropic, Google은 fallback (non-streaming 후 단일 이벤트) |
+| 스트리밍은 Google만 fallback | 낮음 | Google은 fallback (non-streaming 후 단일 이벤트). OpenAI, Anthropic은 네이티브 스트리밍 |
 | 멀티모달 프로바이더별 지원 범위 | 낮음 | OpenAI: image/audio, Anthropic: image/PDF, Google: 모든 타입. 미지원 타입은 조용히 무시 |
 | Anthropic max_tokens probe 레이스 컨디션 | 낮음 | 동일 모델 동시 호출 시 여러 번 probe 가능. 첫 성공 후 캐시 |
 

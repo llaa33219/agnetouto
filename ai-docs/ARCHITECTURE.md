@@ -24,7 +24,7 @@ agentouto/
 └── providers/
     ├── __init__.py      # ProviderBackend ABC, LLMResponse, get_backend()
     ├── openai.py        # OpenAI 구현 (스트리밍, 안전한 JSON 파싱 포함)
-    ├── anthropic.py     # Anthropic 구현 (auto max_tokens 탐색 포함)
+    ├── anthropic.py     # Anthropic 구현 (네이티브 스트리밍, auto max_tokens 탐색 포함)
     └── google.py        # Google Gemini 구현
 ```
 
@@ -370,7 +370,7 @@ class ProviderBackend(ABC):
     async def call(context, tools, agent, provider) -> LLMResponse
     async def stream(context, tools, agent, provider) -> AsyncIterator[str | LLMResponse]
         # 기본 구현: call() 호출 후 content + LLMResponse 순서대로 yield (fallback)
-        # OpenAI만 네이티브 스트리밍 구현 (str 청크를 실시간 yield)
+        # OpenAI, Anthropic은 네이티브 스트리밍 구현 (str 청크를 실시간 yield)
 
 def get_backend(kind: str) -> ProviderBackend  # 팩토리 함수
 ```

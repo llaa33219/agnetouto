@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
+from collections.abc import AsyncIterator
 from typing import Any
 
 from anthropic import AsyncAnthropic
@@ -37,6 +39,31 @@ class AnthropicBackend(ProviderBackend):
         agent: Agent,
         provider: Provider,
     ) -> LLMResponse:
+        response: LLMResponse | None = None
+        async for chunk in self._stream_response(context, tools, agent, provider):
+            if isinstance(chunk, LLMResponse):
+                response = chunk
+        if response is None:
+            raise ProviderError(provider.name, "Empty response: no content from stream")
+        return response
+
+    async def stream(
+        self,
+        context: Context,
+        tools: list[dict[str, Any]],
+        agent: Agent,
+        provider: Provider,
+    ) -> AsyncIterator[str | LLMResponse]:
+        async for chunk in self._stream_response(context, tools, agent, provider):
+            yield chunk
+
+    async def _stream_response(
+        self,
+        context: Context,
+        tools: list[dict[str, Any]],
+        agent: Agent,
+        provider: Provider,
+    ) -> AsyncIterator[str | LLMResponse]:
         client = self._get_client(provider)
 
         messages = _build_messages(context)
@@ -51,6 +78,7 @@ class AnthropicBackend(ProviderBackend):
             "system": context.system_prompt,
             "messages": messages,
             "max_tokens": max_tokens,
+            "stream": True,
             **agent.extra,
         }
         if anthropic_tools:
@@ -65,7 +93,7 @@ class AnthropicBackend(ProviderBackend):
             params["temperature"] = agent.temperature
 
         try:
-            response = await client.messages.create(**params)
+            response_stream = await client.messages.create(**params)
         except Exception as exc:
             if agent.max_output_tokens is not None or agent.model in _max_tokens_cache:
                 raise ProviderError(provider.name, str(exc)) from exc
@@ -86,27 +114,50 @@ class AnthropicBackend(ProviderBackend):
                 _max_tokens_cache[agent.model] = resolved
             params["max_tokens"] = resolved
             try:
-                response = await client.messages.create(**params)
+                response_stream = await client.messages.create(**params)
             except Exception as retry_exc:
                 raise ProviderError(provider.name, str(retry_exc)) from retry_exc
+
+        accumulated_content = ""
+        tool_blocks: dict[int, dict[str, Any]] = {}
+
+        async for event in response_stream:
+            if event.type == "content_block_start":
+                if event.content_block.type == "tool_use":
+                    tool_blocks[event.index] = {
+                        "id": event.content_block.id,
+                        "name": event.content_block.name,
+                        "input_json": "",
+                    }
+            elif event.type == "content_block_delta":
+                if event.delta.type == "text_delta":
+                    accumulated_content += event.delta.text
+                    yield event.delta.text
+                elif event.delta.type == "input_json_delta":
+                    if event.index in tool_blocks:
+                        tool_blocks[event.index]["input_json"] += event.delta.partial_json
 
         if max_tokens == _PROBE_MAX_TOKENS and agent.model not in _max_tokens_cache:
             _max_tokens_cache[agent.model] = _PROBE_MAX_TOKENS
 
-        if not response.content:
+        if not accumulated_content and not tool_blocks:
             raise ProviderError(provider.name, "Empty response: no content blocks returned")
 
-        content_text: str | None = None
         parsed_calls: list[ToolCall] = []
-        for block in response.content:
-            if block.type == "text":
-                content_text = block.text
-            elif block.type == "tool_use":
-                parsed_calls.append(
-                    ToolCall(id=block.id, name=block.name, arguments=block.input)
-                )
+        for idx in sorted(tool_blocks):
+            tb = tool_blocks[idx]
+            try:
+                arguments = json.loads(tb["input_json"]) if tb["input_json"] else {}
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("Malformed tool input JSON: %.200s", tb["input_json"])
+                arguments = {}
+            parsed_calls.append(
+                ToolCall(id=tb["id"], name=tb["name"], arguments=arguments)
+            )
 
-        return LLMResponse(content=content_text, tool_calls=parsed_calls)
+        yield LLMResponse(
+            content=accumulated_content or None, tool_calls=parsed_calls,
+        )
 
 
 def _parse_max_tokens_from_error(error_msg: str) -> int | None:

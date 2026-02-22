@@ -164,6 +164,16 @@ class Context:
 `ToolCall` dataclass: `id`, `name`, `arguments` 보유.
 `ContextMessage` dataclass: `role`, `content`, `tool_calls`, `tool_call_id`, `tool_name`, `attachments` 보유.
 
+**추론 태그 처리:**
+
+assistant 메시지의 원본 content는 추론 태그(`<think>`, `<thinking>`, `<reason>`, `<reasoning>`)를 포함하여 **그대로 보존**한다. 추론 내용 제거는 context 저장 단계에서 하지 않는다.
+
+추론 태그 내부의 도구 호출 감지 방지는 프로바이더 레벨(`providers/__init__.py`)에서 처리한다:
+- `_content_outside_reasoning(content)`: 추론 태그 내용을 제외한 텍스트만 반환
+- `LLMResponse.content_without_reasoning`: 추론 태그 제외 content 속성
+- 텍스트 기반 파싱 프로바이더는 도구 호출 파싱 전에 `_content_outside_reasoning()`을 사용하여 추론 블록을 제외해야 함
+- 구조화된 API 프로바이더(OpenAI, Anthropic, Google)는 도구 호출이 별도 데이터로 반환되므로 이 필터가 불필요
+
 각 프로바이더 백엔드가 이 Context를 자신의 API 포맷으로 변환한다.
 
 ### `router.py` — Router

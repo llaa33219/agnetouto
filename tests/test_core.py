@@ -9,6 +9,7 @@ from agentouto.agent import Agent
 from agentouto.context import Attachment, Context, ContextMessage, ToolCall
 from agentouto.message import Message
 from agentouto.provider import Provider
+from agentouto.providers import LLMResponse, _content_outside_reasoning
 from agentouto.tool import Tool, ToolResult
 
 
@@ -374,6 +375,128 @@ class TestTool:
         result = await greet.execute(name="World")
         assert isinstance(result, str)
         assert result == "Hello, World!"
+
+
+# --- Reasoning Tag Handling ---
+
+
+class TestContentOutsideReasoning:
+    """Tests for _content_outside_reasoning (provider-level utility)."""
+
+    def test_think_tag(self) -> None:
+        assert _content_outside_reasoning("<think>reasoning</think>answer") == "answer"
+
+    def test_thinking_tag(self) -> None:
+        assert _content_outside_reasoning("<thinking>reasoning</thinking>answer") == "answer"
+
+    def test_reason_tag(self) -> None:
+        assert _content_outside_reasoning("<reason>reasoning</reason>answer") == "answer"
+
+    def test_reasoning_tag(self) -> None:
+        assert _content_outside_reasoning("<reasoning>reasoning</reasoning>answer") == "answer"
+
+    def test_multiline(self) -> None:
+        content = "<think>\nI need to call search(query='test')\nLet me think...\n</think>\nThe answer is 42."
+        assert _content_outside_reasoning(content) == "The answer is 42."
+
+    def test_unclosed_tag(self) -> None:
+        assert _content_outside_reasoning("<think>reasoning without closing tag") == ""
+
+    def test_multiple_tags(self) -> None:
+        content = "<think>first</think> middle <think>second</think> end"
+        assert _content_outside_reasoning(content) == "middle  end"
+
+    def test_no_tags(self) -> None:
+        assert _content_outside_reasoning("plain text") == "plain text"
+
+    def test_empty_string(self) -> None:
+        assert _content_outside_reasoning("") == ""
+
+    def test_tool_call_inside_think(self) -> None:
+        content = '<think>I should call search_web(query="AI") to find info</think>Here is my response.'
+        assert _content_outside_reasoning(content) == "Here is my response."
+
+    def test_only_reasoning(self) -> None:
+        assert _content_outside_reasoning("<think>all reasoning, no answer</think>") == ""
+
+    def test_mismatched_tags_stripped_to_end(self) -> None:
+        assert _content_outside_reasoning("<think>content</reasoning>") == ""
+
+    def test_text_surrounding_tag(self) -> None:
+        assert _content_outside_reasoning("Before<think>middle</think>after") == "Beforeafter"
+
+
+class TestContextReasoningPreservation:
+    """Context stores original content including reasoning tags."""
+
+    def test_add_assistant_text_preserves_tags(self) -> None:
+        ctx = Context("sys")
+        ctx.add_assistant_text("<think>reasoning</think>The answer is 42.")
+        assert ctx.messages[0].content == "<think>reasoning</think>The answer is 42."
+
+    def test_add_assistant_text_no_tags(self) -> None:
+        ctx = Context("sys")
+        ctx.add_assistant_text("plain response")
+        assert ctx.messages[0].content == "plain response"
+
+    def test_add_assistant_text_only_reasoning_preserved(self) -> None:
+        ctx = Context("sys")
+        ctx.add_assistant_text("<think>only reasoning</think>")
+        assert ctx.messages[0].content == "<think>only reasoning</think>"
+
+    def test_add_assistant_tool_calls_preserves_tags(self) -> None:
+        ctx = Context("sys")
+        tc = ToolCall(id="tc1", name="search", arguments={"q": "test"})
+        ctx.add_assistant_tool_calls([tc], content="<think>let me search</think>Searching now.")
+        msg = ctx.messages[0]
+        assert msg.content == "<think>let me search</think>Searching now."
+        assert msg.tool_calls is not None
+
+    def test_add_assistant_tool_calls_only_reasoning_preserved(self) -> None:
+        ctx = Context("sys")
+        tc = ToolCall(id="tc1", name="search", arguments={"q": "test"})
+        ctx.add_assistant_tool_calls([tc], content="<think>only reasoning</think>")
+        msg = ctx.messages[0]
+        assert msg.content == "<think>only reasoning</think>"
+        assert msg.tool_calls is not None
+
+    def test_add_assistant_tool_calls_none_content(self) -> None:
+        ctx = Context("sys")
+        tc = ToolCall(id="tc1", name="search", arguments={"q": "test"})
+        ctx.add_assistant_tool_calls([tc], content=None)
+        msg = ctx.messages[0]
+        assert msg.content is None
+
+
+class TestLLMResponseContentWithoutReasoning:
+    """LLMResponse.content_without_reasoning strips reasoning tags."""
+
+    def test_with_reasoning(self) -> None:
+        resp = LLMResponse(content="<think>deep thought</think>The answer is 42.")
+        assert resp.content_without_reasoning == "The answer is 42."
+        assert resp.content == "<think>deep thought</think>The answer is 42."
+
+    def test_tool_calls_preserved_with_reasoning_content(self) -> None:
+        tc = ToolCall(id="1", name="search", arguments={"q": "test"})
+        resp = LLMResponse(
+            content="<think>I should call search</think>Here is my answer.",
+            tool_calls=[tc],
+        )
+        assert resp.tool_calls == [tc]
+        assert resp.content == "<think>I should call search</think>Here is my answer."
+        assert resp.content_without_reasoning == "Here is my answer."
+
+    def test_none_content(self) -> None:
+        resp = LLMResponse(content=None)
+        assert resp.content_without_reasoning is None
+
+    def test_no_tags(self) -> None:
+        resp = LLMResponse(content="plain response")
+        assert resp.content_without_reasoning == "plain response"
+
+    def test_only_reasoning_returns_none(self) -> None:
+        resp = LLMResponse(content="<think>all reasoning</think>")
+        assert resp.content_without_reasoning is None
 
 
 # --- Attachment ---

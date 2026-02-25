@@ -169,6 +169,7 @@ Providers hold API credentials. No model settings, no inference config.
 from agentouto import Provider
 
 openai = Provider(name="openai", kind="openai", api_key="sk-...")        # gpt-5.2, gpt-5.3-codex, o3, o4-mini
+openai_resp = Provider(name="openai-resp", kind="openai_responses", api_key="sk-...")  # Responses API
 anthropic = Provider(name="anthropic", kind="anthropic", api_key="sk-ant-...")  # claude-opus-4-6, claude-sonnet-4-6
 google = Provider(name="google", kind="google", api_key="AIza...")        # gemini-3.1-pro, gemini-3-flash
 
@@ -179,7 +180,7 @@ local = Provider(name="local", kind="openai", base_url="http://localhost:11434/v
 | Field | Description | Required |
 |-------|-------------|----------|
 | `name` | Identifier for the provider | ✅ |
-| `kind` | API type: `"openai"`, `"anthropic"`, `"google"` | ✅ |
+| `kind` | API type: `"openai"`, `"openai_responses"`, `"anthropic"`, `"google"` | ✅ |
 | `api_key` | API key | ✅ |
 | `base_url` | Custom endpoint URL (for compatible APIs) | ❌ |
 
@@ -214,13 +215,13 @@ agent = Agent(
 
 The SDK uses unified parameter names. Each provider backend maps them internally:
 
-| SDK Parameter | OpenAI | Anthropic | Google Gemini |
-|---|---|---|---|
-| `max_output_tokens` | `max_completion_tokens` (omitted when `None`) | `max_tokens` (auto-probed when `None`) | `max_output_tokens` (omitted when `None`) |
-| `reasoning=True` | sends `reasoning_effort` | `thinking={"type": "enabled", "budget_tokens": ...}` | `thinking_config={"thinking_budget": ...}` |
-| `reasoning_effort` | top-level `reasoning_effort` | N/A | N/A |
-| `reasoning_budget` | N/A | `thinking.budget_tokens` | `thinking_config.thinking_budget` |
-| `temperature` (reasoning=True) | **not sent** | **forced to 1** | sent as-is |
+| SDK Parameter | OpenAI (Chat Completions) | OpenAI (Responses) | Anthropic | Google Gemini |
+|---|---|---|---|---|
+| `max_output_tokens` | `max_completion_tokens` (omitted when `None`) | `max_output_tokens` (omitted when `None`) | `max_tokens` (auto-probed when `None`) | `max_output_tokens` (omitted when `None`) |
+| `reasoning=True` | sends `reasoning_effort` | `reasoning={"effort": value}` | `thinking={"type": "enabled", "budget_tokens": ...}` | `thinking_config={"thinking_budget": ...}` |
+| `reasoning_effort` | top-level `reasoning_effort` | `reasoning.effort` | N/A | N/A |
+| `reasoning_budget` | N/A | N/A | `thinking.budget_tokens` | `thinking_config.thinking_budget` |
+| `temperature` (reasoning=True) | **not sent** | **not sent** | **forced to 1** | sent as-is |
 
 See [`ai-docs/PROVIDER_BACKENDS.md`](./ai-docs/PROVIDER_BACKENDS.md) for full mapping details.
 
@@ -349,7 +350,8 @@ Two types. No exceptions.
 
 | Kind | Provider | Example Models | Compatible With |
 |------|----------|----------------|-----------------|
-| `"openai"` | OpenAI API | `gpt-5.2`, `gpt-5.3-codex`, `o3`, `o4-mini` | vLLM, Ollama, LM Studio, any OpenAI-compatible API |
+| `"openai"` | OpenAI Chat Completions API | `gpt-5.2`, `gpt-5.3-codex`, `o3`, `o4-mini` | vLLM, Ollama, LM Studio, any OpenAI-compatible API |
+| `"openai_responses"` | OpenAI Responses API | `gpt-5.2`, `gpt-5.3-codex`, `o3`, `o4-mini` | — |
 | `"anthropic"` | Anthropic API | `claude-opus-4-6`, `claude-sonnet-4-6` | AWS Bedrock, Google Vertex AI, Ollama, LiteLLM, any Anthropic-compatible API |
 | `"google"` | Google Gemini API | `gemini-3.1-pro`, `gemini-3-flash` | — |
 
@@ -409,7 +411,8 @@ agentouto/
 ├── exceptions.py        # ProviderError, AgentError, ToolError, RoutingError
 └── providers/
     ├── __init__.py      # ProviderBackend ABC, LLMResponse, get_backend()
-    ├── openai.py        # OpenAI (+ compatible APIs) implementation
+    ├── openai.py        # OpenAI Chat Completions (+ compatible APIs) implementation
+    ├── openai_responses.py  # OpenAI Responses API implementation
     ├── anthropic.py     # Anthropic implementation
     └── google.py        # Google Gemini implementation
 ```
@@ -430,6 +433,7 @@ agentouto/
 | **8** | Rich parameter schemas (Annotated, Literal, Enum, default) | ✅ Done |
 | **9** | Reasoning tag handling (content preservation, detection prevention) | ✅ Done |
 | **10** | Auto max output tokens + safe JSON argument parsing | ✅ Done |
+| **13** | OpenAI Responses API backend (`openai_responses`) | ✅ Done |
 
 ---
 

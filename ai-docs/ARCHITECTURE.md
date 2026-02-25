@@ -23,7 +23,8 @@ agentouto/
 ├── tracing.py           # 호출 트레이싱 (Span, Trace)
 └── providers/
     ├── __init__.py      # ProviderBackend ABC, LLMResponse, get_backend()
-    ├── openai.py        # OpenAI 구현 (스트리밍, 안전한 JSON 파싱 포함)
+    ├── openai.py        # OpenAI Chat Completions 구현 (스트리밍, 안전한 JSON 파싱 포함)
+    ├── openai_responses.py  # OpenAI Responses API 구현 (네이티브 스트리밍 포함)
     ├── anthropic.py     # Anthropic 구현 (네이티브 스트리밍, auto max_tokens 탐색 포함)
     └── google.py        # Google Gemini 구현
 ```
@@ -85,7 +86,7 @@ class Agent:
 @dataclass
 class Provider:
     name: str                                    # 식별 이름
-    kind: Literal["openai", "anthropic", "google"]  # API 종류
+    kind: Literal["openai", "openai_responses", "anthropic", "google"]  # API 종류
     api_key: str                                 # API 키
     base_url: str | None                         # 커스텀 엔드포인트 (선택)
 ```
@@ -425,7 +426,8 @@ run(entry, message, agents, tools, providers)
 ```
 Context (프로바이더 비의존)
     │
-    ├── OpenAI:  _build_messages(context) → list[dict]  (role/content/tool_calls)
+    ├── OpenAI (Chat Completions):  _build_messages(context) → list[dict]  (role/content/tool_calls)
+    ├── OpenAI (Responses):  _build_input(context) → list[dict]  (input items + instructions)
     ├── Anthropic: _build_messages(context) → list[dict]  (content blocks)
     └── Google:  _build_contents(context) → list[Content]  (protos)
 ```

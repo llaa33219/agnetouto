@@ -76,6 +76,9 @@ def get_backend(kind: str) -> ProviderBackend:
     if kind == "openai":
         from agentouto.providers.openai import OpenAIBackend
         return OpenAIBackend()
+    elif kind == "openai_responses":
+        from agentouto.providers.openai_responses import OpenAIResponsesBackend
+        return OpenAIResponsesBackend()
     elif kind == "anthropic":
         from agentouto.providers.anthropic import AnthropicBackend
         return AnthropicBackend()

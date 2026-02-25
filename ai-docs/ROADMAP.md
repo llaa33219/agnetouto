@@ -8,9 +8,9 @@
 
 ## 1. 현재 상태
 
-**버전:** 0.5.0 (공개)
+**버전:** 0.10.0 (공개)
 
-**최종 업데이트:** Phase 12 완료 — finish() 강제화
+**최종 업데이트:** Phase 13 완료 — OpenAI Responses API 백엔드
 
 ---
 
@@ -138,6 +138,23 @@
 - [x] 경고 로그 출력 (LLM이 finish 사용 안 할 때)
 - [x] 143개 테스트 (스트리밍 nudge 테스트 포함)
 
+### Phase 13: OpenAI Responses API 백엔드 ✅
+
+- [x] `providers/openai_responses.py` 신규 생성 — `OpenAIResponsesBackend` 클래스
+- [x] `client.responses.create()` 기반 `call()` 구현
+- [x] `_build_input()` — Context → Responses API input items 변환 (user/assistant/function_call/function_call_output)
+- [x] `_build_tools()` — 플랫 도구 스키마 변환 (`{"type": "function", "name":..., ...}`)
+- [x] `_parse_response()` — `response.output`에서 function_call 아이템 추출, `output_text`로 텍스트 추출
+- [x] `stream()` 네이티브 스트리밍 구현 (SSE 이벤트 파싱)
+- [x] `_parse_tool_arguments` 재사용 (`providers/openai.py`에서 import)
+- [x] 클라이언트 캐싱 (`AsyncOpenAI` 인스턴스 재사용)
+- [x] 멀티모달 첨부파일 처리 (`input_image`, `input_audio`)
+- [x] `provider.py`: `kind` Literal에 `"openai_responses"` 추가
+- [x] `providers/__init__.py`: `get_backend()`에 분기 추가
+- [x] `previous_response_id` 사용하지 않음 (스테이트리스 모드, 아키텍처 정합성 유지)
+- [x] ai-docs 전체 업데이트 (ARCHITECTURE, PROVIDER_BACKENDS, ROADMAP)
+- [x] README 업데이트 (Supported Providers 테이블, Provider 섹션)
+
 ---
 
 ## 3. 미구현 기능
@@ -164,6 +181,22 @@
 ---
 
 ## 5. 변경 이력
+
+### 0.10.0 (Phase 13: OpenAI Responses API 백엔드)
+
+- `providers/openai_responses.py` 신규 생성: `OpenAIResponsesBackend` 클래스
+- `client.responses.create()` 기반 `call()` + `stream()` 구현
+- `_build_input()`: Context → input items 변환 (system_prompt → instructions 파라미터)
+- `_build_tools()`: 플랫 도구 스키마 ({"type":"function","name":...})
+- `_parse_response()`: response.output 파싱 (function_call items + output_text)
+- 네이티브 스트리밍 (SSE 이벤트: output_text.delta, function_call_arguments.delta)
+- `_parse_tool_arguments` 재사용 (openai.py에서 import)
+- 멀티모달 첨부파일 처리 (input_image, input_audio)
+- `provider.py`: kind Literal에 "openai_responses" 추가
+- `providers/__init__.py`: get_backend() 분기 추가
+- `previous_response_id` 사용하지 않음 (스테이트리스 모드)
+- ai-docs 전체 업데이트
+- README 업데이트
 
 ### 0.8.0 (Phase 12: finish() 강제화)
 

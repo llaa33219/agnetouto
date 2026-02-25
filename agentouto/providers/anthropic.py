@@ -29,7 +29,10 @@ class AnthropicBackend(ProviderBackend):
 
     def _get_client(self, provider: Provider) -> AsyncAnthropic:
         if provider.name not in self._clients:
-            self._clients[provider.name] = AsyncAnthropic(api_key=provider.api_key)
+            self._clients[provider.name] = AsyncAnthropic(
+                api_key=provider.api_key,
+                base_url=provider.base_url,
+            )
         return self._clients[provider.name]
 
     async def call(

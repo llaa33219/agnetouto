@@ -131,17 +131,17 @@ class ModelMetadata:
 
 def get_model_info(model: str) -> ModelMetadata | None
 def resolve_max_output_tokens(model: str, user_value: int | None) -> int | None
-async def fetch_model_metadata_from_api(api_key: str | None = None) -> dict[str, ModelMetadata]
+async def ensure_loaded() -> None
 ```
 
 **메타데이터 소스**:
-1. **Fallback 딕셔너리**: 100+ 모델의 알려진 메타데이터 하드코딩 (OpenAI, Anthropic, Google, Meta, DeepSeek, xAI, Alibaba 등)
-2. **Artificial Analysis API**: `ARTIFICIAL_ANALYSIS_API_KEY` 환경변수로 API 키 설정 시 실시간 데이터Fetch (선택적)
+1. **최소 폴백**: 주요 모델만 하드코딩 (gpt-5, gpt-4o, claude-opus-4-6, claude-sonnet-4-6, gemini-2.5-pro)
+2. **OpenRouter API**: 무료로 1000+ 모델의 최신 메타데이터 실시간 Fetch (API Key 불필요)
 
 **동작 방식**:
 - `agent.max_output_tokens`가 `None`이면 모델 메타데이터에서 자동 결정
-- 딕셔너리에 없으면 API에서Fetch 시도
-- 여전히 없으면 프로바이더 기본값 사용
+- OpenRouter API에서 실시간 Fetch (무료, API Key 불필요)
+- 실패 시 폴백 사용
 
 **지원 모델 예시**:
 - OpenAI: gpt-5 (400K context, 128K output), gpt-4o (128K context, 16K output)

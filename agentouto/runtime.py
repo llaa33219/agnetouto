@@ -513,11 +513,6 @@ async def async_run(
     attachments: list[Attachment] | None = None,
     debug: bool = False,
 ) -> RunResult:
-    for p in providers:
-        if p.artificial_analysis_key:
-            from agentouto.model_metadata import set_api_key
-            set_api_key(p.artificial_analysis_key)
-            break
     router = Router(agents, tools, providers)
     runtime = Runtime(router, debug=debug)
     return await runtime.execute(entry, message, attachments=attachments)

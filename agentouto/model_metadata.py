@@ -37,14 +37,21 @@ def clear_cache() -> None:
     logger.info("Model metadata cache cleared")
 
 
-async def _load_from_openrouter() -> dict[str, ModelMetadata]:
+async def _load_from_openrouter(_retry: bool = False) -> dict[str, ModelMetadata]:
     global _loaded, _load_attempted, _load_error, _api_metadata
     
     if _loaded:
         return _api_metadata
     
-    if _load_attempted:
-        logger.error("Previous load attempt failed: %s", _load_error)
+    if _load_attempted and not _retry:
+        # Auto-clear cache and retry once on previous failure
+        logger.info("Previous load failed. Clearing cache and retrying...")
+        clear_cache()
+        return await _load_from_openrouter(_retry=True)
+    
+    if _load_attempted and _retry:
+        # Retry also failed - give up
+        logger.error("Retry failed: %s", _load_error)
         raise ModelMetadataError(
             f"Failed to load model metadata from OpenRouter: {_load_error}. "
             "Call clear_cache() to reset and retry."

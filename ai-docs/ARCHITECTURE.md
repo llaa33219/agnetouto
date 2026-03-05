@@ -142,11 +142,13 @@ def clear_cache() -> None
 **캐싱**:
 - 한 번 로드되면 메모리에 캐시됨
 - `clear_cache()`로 캐시 초기화 가능
+- **자동 재시도**: 첫 번째 로드 실패 시 자동으로 캐시를 클리어하고 한 번 재시도함
 
 **동작 방식**:
 - OpenRouter API에서 실시간 Fetch
 - 모델을 찾지 못하면 `ModelMetadataError` 예외 발생
 - 폴백 없음 - 반드시 OpenRouter에 모델이 존재해야 함
+- 네트워크 오류 등 실패 시 자동으로 한 번 재시도 (총 2회 시도)
 
 ### `message.py` — Message
 

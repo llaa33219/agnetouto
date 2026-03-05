@@ -261,6 +261,7 @@ agent = Agent(
 | `reasoning_effort` | Reasoning intensity | `"medium"` |
 | `reasoning_budget` | Thinking token budget (Anthropic) | `None` |
 | `temperature` | Temperature | `1.0` |
+| `context_window` | Context window tokens (auto-resolved) | `None` (auto) |
 | `extra` | Additional API parameters (free dict) | `{}` |
 
 The SDK uses unified parameter names. Each provider backend maps them internally:
@@ -272,6 +273,8 @@ The SDK uses unified parameter names. Each provider backend maps them internally
 | `reasoning_effort` | top-level `reasoning_effort` | `reasoning.effort` | N/A | N/A |
 | `reasoning_budget` | N/A | N/A | `thinking.budget_tokens` | `thinking_config.thinking_budget` |
 | `temperature` (reasoning=True) | **not sent** | **not sent** | **forced to 1** | sent as-is |
+
+`context_window` is auto-resolved from OpenRouter when `None`. Set explicitly to override. When set, self-summarization triggers at 70% of context limit.
 
 See [`ai-docs/PROVIDER_BACKENDS.md`](./ai-docs/PROVIDER_BACKENDS.md) for full mapping details.
 

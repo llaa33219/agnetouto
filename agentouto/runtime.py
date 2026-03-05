@@ -23,6 +23,7 @@ from agentouto.summarizer import (
 )
 from agentouto.tool import Tool, ToolResult
 from agentouto.tracing import Trace
+from agentouto.model_metadata import get_context_window
 
 if TYPE_CHECKING:
     from agentouto.streaming import StreamEvent
@@ -257,15 +258,19 @@ class Runtime:
     async def _maybe_summarize(
         self, context: Context, agent: Agent
     ) -> None:
-        if agent.context_window is None:
-            return
+        context_window = agent.context_window
+        if context_window is None:
+            try:
+                context_window = await get_context_window(agent.model)
+            except Exception:
+                return
 
-        if not needs_summarization(context, agent.context_window):
+        if not needs_summarization(context, context_window):
             return
 
         tokens = estimate_context_tokens(context)
         messages = context.messages
-        split = find_summarization_boundary(messages, agent.context_window)
+        split = find_summarization_boundary(messages, context_window)
         if split is None:
             return
 

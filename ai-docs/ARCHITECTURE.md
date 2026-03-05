@@ -89,13 +89,13 @@ class Agent:
     reasoning_effort: str   # 추론 강도 (기본: "medium")
     reasoning_budget: int | None  # 추론 토큰 예산 (기본: None)
     temperature: float      # 온도 (기본: 1.0)
-    context_window: int | None  # 컨텍스트 윈도우 토큰 수 (기본: None → 요약 비활성화)
+    context_window: int | None  # 컨텍스트 윈도우 토큰 수 (기본: None → 자동 해결)
     extra: dict[str, Any]   # 추가 파라미터 (기본: {})
 ```
 
 순수 데이터 컨테이너. 로직 없음. `provider` 필드는 `Provider.name`과 매칭되는 문자열.
 
-`context_window`가 설정되면 에이전트 루프에서 LLM 호출 전마다 추정 토큰이 `context_window * 0.70`을 초과하는지 확인한다. 초과 시 에이전트가 스스로 대화를 요약하여 교체한다. `None`이면 요약이 비활성화된다.
+`context_window`가 `None`이면 OpenRouter에서 모델 정보를 자동으로 가져와 사용한다. 값을 직접 설정할 수도 있다. 요약은 추정 토큰이 `context_window * 0.70`을 초과할 때마다 에이전트가 스스로 대화를 요약하여 교체한다.
 
 `max_output_tokens`가 `None`이면 각 프로바이더가 자동으로 최대값을 사용한다:
 - **OpenAI/Google**: 파라미터 생략 → API가 모델 최대값 자동 적용

@@ -27,6 +27,14 @@ _load_attempted: bool = False
 _api_metadata: dict[str, ModelMetadata] = {}
 
 
+def clear_cache() -> None:
+    global _loaded, _load_attempted, _api_metadata
+    _loaded = False
+    _load_attempted = False
+    _api_metadata.clear()
+    logger.info("Model metadata cache cleared")
+
+
 async def _load_from_openrouter() -> dict[str, ModelMetadata]:
     global _loaded, _load_attempted, _api_metadata
     

@@ -131,24 +131,26 @@ class ModelMetadata:
 
 class ModelMetadataError(Exception): ...
 
-def get_model_info(model: str) -> ModelMetadata
-def resolve_max_output_tokens(model: str, user_value: int | None) -> int | None
+async def get_model_info(model: str) -> ModelMetadata
+async def resolve_max_output_tokens(model: str, user_value: int | None) -> int | None
 async def ensure_loaded() -> None
+async def get_context_window(model: str) -> int
 def clear_cache() -> None
 ```
 
-**메타데이터 소스**: OpenRouter API만 사용 (무료, API Key 불필요)
+**메타데이터 소스**: LCW API (`https://lcw-api.blp.sh`) 사용
 
 **캐싱**:
-- 한 번 로드되면 메모리에 캐시됨
+- 모델별로 개별적으로 메모리에 캐시됨
 - `clear_cache()`로 캐시 초기화 가능
-- **자동 재시도**: 첫 번째 로드 실패 시 자동으로 캐시를 클리어하고 한 번 재시도함
+- 모델 이름 정규화: `gpt-4o`, `GPT-4O`, `gpt_4o`, `gpt 4o`는同一 캐시 키로 매핑
 
 **동작 방식**:
-- OpenRouter API에서 실시간 Fetch
+- 요청 시 개별 모델-fetch ( lazily, on-demand)
+- 첫 번째 조회 시 API에서 메타데이터를 가져와 캐시
+- 이후 조회는 캐시에서 즉시 반환
 - 모델을 찾지 못하면 `ModelMetadataError` 예외 발생
-- 폴백 없음 - 반드시 OpenRouter에 모델이 존재해야 함
-- 네트워크 오류 등 실패 시 자동으로 한 번 재시도 (총 2회 시도)
+- `max_output_tokens`는 API에서 제공하지 않음 (`None` 반환)
 
 ### `message.py` — Message
 

@@ -274,7 +274,7 @@ The SDK uses unified parameter names. Each provider backend maps them internally
 | `reasoning_budget` | N/A | N/A | `thinking.budget_tokens` | `thinking_config.thinking_budget` |
 | `temperature` (reasoning=True) | **not sent** | **not sent** | **forced to 1** | sent as-is |
 
-`context_window` is auto-resolved from OpenRouter when `None`. Set explicitly to override. When set, self-summarization triggers at 70% of context limit.
+`context_window` is auto-resolved from LCW API when `None`. Set explicitly to override. When set, self-summarization triggers at 70% of context limit.
 
 See [`ai-docs/PROVIDER_BACKENDS.md`](./ai-docs/PROVIDER_BACKENDS.md) for full mapping details.
 

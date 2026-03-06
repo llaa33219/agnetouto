@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger("agentouto")
+
+_API_BASE_URL = "https://lcw-api.blp.sh"
 
 try:
     import aiohttp
@@ -22,144 +25,131 @@ class ModelMetadataError(Exception):
     pass
 
 
-_loaded: bool = False
-_load_attempted: bool = False
-_load_error: str | None = None
+def _normalize_model_name(name: str) -> str:
+    """Normalize model name for consistent cache keys.
+    
+    gpt-4o, GPT-4O, gpt_4o, gpt 4o → gpt-4o
+    """
+    normalized = name.lower().strip()
+    normalized = re.sub(r'[\s_]+', '-', normalized)
+    return normalized
+
+
 _api_metadata: dict[str, ModelMetadata] = {}
 
 
 def clear_cache() -> None:
-    global _loaded, _load_attempted, _load_error, _api_metadata
-    _loaded = False
-    _load_attempted = False
-    _load_error = None
+    """Clear the per-model metadata cache."""
     _api_metadata.clear()
     logger.info("Model metadata cache cleared")
 
 
-async def _load_from_openrouter(_retry: bool = False) -> dict[str, ModelMetadata]:
-    global _loaded, _load_attempted, _load_error, _api_metadata
-    
-    if _loaded:
-        return _api_metadata
-    
-    if _load_attempted and not _retry:
-        # Auto-clear cache and retry once on previous failure
-        logger.info("Previous load failed. Clearing cache and retrying...")
-        clear_cache()
-        return await _load_from_openrouter(_retry=True)
-    
-    if _load_attempted and _retry:
-        # Retry also failed - give up
-        logger.error("Retry failed: %s", _load_error)
-        raise ModelMetadataError(
-            f"Failed to load model metadata from OpenRouter: {_load_error}. "
-            "Call clear_cache() to reset and retry."
-        )
-    
-    _load_attempted = True
-    
+async def _fetch_model(model: str) -> ModelMetadata:
+    """Fetch metadata for a single model from the LCW API."""
     if not _AIOHTTP_AVAILABLE:
-        _load_error = "aiohttp not installed. Install with: pip install aiohttp"
-        raise ModelMetadataError(_load_error)
-    
-    url = "https://openrouter.ai/api/v1/models"
-    
+        raise ModelMetadataError(
+            "aiohttp not installed. Install with: pip install aiohttp"
+        )
+
+    url = f"{_API_BASE_URL}/context-window"
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=30)
+                url,
+                params={"model": model},
+                timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                if resp.status != 200:
-                    _load_error = f"OpenRouter API returned status {resp.status}"
-                    logger.error("%s", _load_error)
-                    raise ModelMetadataError(_load_error)
-                
                 data = await resp.json()
-                for model_entry in data.get("data", []):
-                    model_id = model_entry.get("id", "").lower()
-                    endpoints = model_entry.get("endpoints", [])
-                    if not endpoints:
-                        continue
-                    endpoint = endpoints[0]
-                    context_length = endpoint.get("context_length")
-                    if not context_length:
-                        continue
-                    max_output = endpoint.get("max_output_tokens")
-                    meta = ModelMetadata(
-                        context_window=context_length,
-                        max_output_tokens=max_output,
+
+                if resp.status == 404 or not data.get("success", False):
+                    error_msg = data.get("error", f"Model not found: {model}")
+                    raise ModelMetadataError(error_msg)
+
+                if resp.status != 200:
+                    raise ModelMetadataError(
+                        f"Model metadata API returned status {resp.status}"
                     )
-                    _api_metadata[model_id] = meta
-                    
-                    author = model_entry.get("author", "")
-                    name = model_entry.get("name", "").lower()
-                    if author and name:
-                        short_key = f"{author}/{name}"
-                        _api_metadata[short_key] = meta
-                
-                if not _api_metadata:
-                    _load_error = "No models in OpenRouter API response"
-                    logger.error("%s", _load_error)
-                    raise ModelMetadataError(_load_error)
-                
-                logger.info(
-                    "Loaded %d models from OpenRouter API",
-                    len(_api_metadata),
+
+                model_data = data.get("data", {})
+                context_window = model_data.get("contextWindow")
+
+                if context_window is None:
+                    raise ModelMetadataError(
+                        f"No context window data for model '{model}'"
+                    )
+
+                meta = ModelMetadata(
+                    context_window=context_window,
+                    max_output_tokens=context_window,  # Same as context_window
                 )
+
+                # Cache under normalized key
+                cache_key = _normalize_model_name(model)
+                _api_metadata[cache_key] = meta
+
+                # Also cache under slug if available
+                slug = model_data.get("slug")
+                if slug:
+                    _api_metadata[slug.lower()] = meta
+
+                logger.debug(
+                    "Fetched metadata for '%s': context_window=%d",
+                    model, context_window,
+                )
+
+                return meta
+
     except ModelMetadataError:
         raise
     except Exception as e:
-        _load_error = str(e)
-        logger.error("Failed to fetch model metadata from OpenRouter: %s", e)
-        raise ModelMetadataError(f"Failed to fetch model metadata from OpenRouter: {e}")
-    
-    _loaded = True
-    _load_error = None
-    return _api_metadata
+        raise ModelMetadataError(
+            f"Failed to fetch model metadata for '{model}': {e}"
+        )
 
 
 async def ensure_loaded() -> None:
-    await _load_from_openrouter()
+    """No-op for backwards compatibility. Models are fetched on demand."""
+    pass
 
 
-def get_model_info(model: str) -> ModelMetadata:
-    if not _loaded:
-        raise ModelMetadataError(
-            "Model metadata not loaded. Call ensure_loaded() first."
-        )
-    
-    model_lower = model.lower()
-    
-    if model_lower in _api_metadata:
-        return _api_metadata[model_lower]
-    
-    for known, meta in _api_metadata.items():
-        if known in model_lower or model_lower in known:
-            return meta
-    
-    available = ", ".join(sorted(_api_metadata.keys())[:20])
-    raise ModelMetadataError(
-        f"Model '{model}' not found in OpenRouter. "
-        f"Available models (first 20): {available}..."
-    )
+async def get_model_info(model: str) -> ModelMetadata:
+    """Get model metadata, fetching from API on cache miss."""
+    cache_key = _normalize_model_name(model)
+
+    if cache_key in _api_metadata:
+        return _api_metadata[cache_key]
+
+    try:
+        return await _fetch_model(model)
+    except ModelMetadataError:
+        # On failure, remove this model's entry from cache if it exists
+        _api_metadata.pop(cache_key, None)
+        # Also try slug key
+        slug_key = model.lower()
+        _api_metadata.pop(slug_key, None)
+        raise
 
 
 async def resolve_max_output_tokens(model: str, user_value: int | None) -> int | None:
+    """Resolve max output tokens. Returns user value, API value, or None."""
     if user_value is not None:
         return user_value
-    
-    await ensure_loaded()
-    info = get_model_info(model)
-    if info.max_output_tokens:
-        return info.max_output_tokens
-    
-    raise ModelMetadataError(
-        f"Model '{model}' does not have max_output_tokens info"
-    )
+
+    try:
+        info = await get_model_info(model)
+        if info.max_output_tokens:
+            return info.max_output_tokens
+    except ModelMetadataError:
+        logger.debug(
+            "Could not resolve max_output_tokens for '%s', returning None",
+            model,
+        )
+
+    return None
 
 
 async def get_context_window(model: str) -> int:
-    await ensure_loaded()
-    info = get_model_info(model)
+    """Get context window size for a model."""
+    info = await get_model_info(model)
     return info.context_window

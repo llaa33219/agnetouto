@@ -304,11 +304,11 @@ class Router:
 ```python
 class Runtime:
     def __init__(router, debug=False)
-    async def execute(agent, forward_message, *, attachments=None) -> RunResult
-    async def _run_agent_loop(agent, forward_message, call_id, parent_call_id, *, attachments=None) -> str
+    async def execute(agent, forward_message, *, attachments=None, history=None) -> RunResult
+    async def _run_agent_loop(agent, forward_message, call_id, parent_call_id, *, attachments=None, history=None) -> str
     async def _execute_tool_call(tc, caller_name, caller_call_id) -> str | ToolResult
-    async def execute_stream(agent, forward_message, *, attachments=None) -> AsyncIterator[StreamEvent]
-    async def _stream_agent_loop(agent, forward_message, call_id, parent_call_id, *, attachments=None) -> AsyncIterator[StreamEvent]
+    async def execute_stream(agent, forward_message, *, attachments=None, history=None) -> AsyncIterator[StreamEvent]
+    async def _stream_agent_loop(agent, forward_message, call_id, parent_call_id, *, attachments=None, history=None) -> AsyncIterator[StreamEvent]
 ```
 
 **디버그 모드:**
@@ -354,7 +354,13 @@ class Runtime:
 - Router 생성 → Runtime 생성 → execute 호출 → RunResult 반환
 - `run()`은 `asyncio.run(async_run(...))` 래퍼
 - `attachments` 파라미터는 keyword-only (`*, attachments: list[Attachment] | None = None`)
+- `history` 파라미터는 keyword-only (`*, history: list[Message] | None = None`) — 이전 대화 이력을 전달
 - `debug` 파라미터는 keyword-only (`*, debug: bool = False`)
+
+**대화 이력 (history):**
+- `history` 파라미터로 이전 `RunResult.messages`를 전달하면 에이전트가 이전 대화를 참고할 수 있음
+- `call_agent` 도구 호출 시에도 `history` 파라미터를 통해 이전 대화 전달 가능
+- 역사는 에이전트의 컨텍스트 앞에 추가되어 현재 메시지보다 먼저 처리됨
 
 **`RunResult`:**
 ```python

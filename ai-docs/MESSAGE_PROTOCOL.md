@@ -54,7 +54,21 @@ LLM에게 제공되는 `call_agent` 도구:
     "type": "object",
     "properties": {
       "agent_name": {"type": "string", "description": "Name of the agent to call"},
-      "message": {"type": "string", "description": "Message to send to the agent"}
+      "message": {"type": "string", "description": "Message to send to the agent"},
+      "history": {
+        "type": "array",
+        "description": "Optional conversation history to attach (from previous RunResult.messages)",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "enum": ["forward", "return"]},
+            "sender": {"type": "string"},
+            "receiver": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["type", "sender", "receiver", "content"]
+        }
+      }
     },
     "required": ["agent_name", "message"]
   }
@@ -68,6 +82,7 @@ LLM에게 제공되는 `call_agent` 도구:
 3. 대상 에이전트(`writer`)의 `_run_agent_loop` 재귀 호출
 4. 대상 에이전트가 완료되면 결과 문자열을 도구 결과로 반환
 5. 호출한 에이전트의 context에 도구 결과로 추가
+6. `history` 파라미터가 있으면 해당 메시지를 에이전트의 컨텍스트 앞에 추가
 
 ### 핵심: call_agent = 재귀 호출
 

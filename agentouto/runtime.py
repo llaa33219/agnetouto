@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from agentouto._constants import CALL_AGENT, FINISH
 from agentouto.agent import Agent
-from agentouto.context import Attachment, Context, ToolCall
+from agentouto.context import Attachment, Context, ContextMessage, ToolCall
 from agentouto.event_log import AgentEvent, EventLog
 from agentouto.exceptions import RoutingError, ToolError
 from agentouto.message import Message
@@ -33,7 +33,7 @@ logger = logging.getLogger("agentouto")
 _FINISH_NUDGE = (
     "Your plain text response was NOT delivered to the caller. "
     "You MUST use the finish tool to return results. "
-    "Call finish(message=\"your result\") now."
+    'Call finish(message="your result") now.'
 )
 
 
@@ -63,6 +63,7 @@ class Runtime:
         forward_message: str,
         *,
         attachments: list[Attachment] | None = None,
+        history: list[Message] | None = None,
     ) -> RunResult:
         call_id = uuid.uuid4().hex
 
@@ -76,12 +77,24 @@ class Runtime:
                 attachments=attachments,
             )
         )
-        self._record("agent_call", agent.name, call_id, None, {
-            "message": _truncate(forward_message),
-        })
+        self._record(
+            "agent_call",
+            agent.name,
+            call_id,
+            None,
+            {
+                "message": _truncate(forward_message),
+            },
+        )
 
         output = await self._run_agent_loop(
-            agent, forward_message, call_id, None, "user", attachments=attachments
+            agent,
+            forward_message,
+            call_id,
+            None,
+            "user",
+            attachments=attachments,
+            history=history,
         )
 
         self._messages.append(
@@ -93,9 +106,15 @@ class Runtime:
                 call_id=call_id,
             )
         )
-        self._record("agent_return", agent.name, call_id, None, {
-            "result": _truncate(output),
-        })
+        self._record(
+            "agent_return",
+            agent.name,
+            call_id,
+            None,
+            {
+                "result": _truncate(output),
+            },
+        )
 
         trace = Trace(self._event_log) if self._event_log else None
         if self._debug and self._event_log is not None:
@@ -119,25 +138,44 @@ class Runtime:
         caller: str | None = None,
         *,
         attachments: list[Attachment] | None = None,
+        history: list[Message] | None = None,
     ) -> str:
         system_prompt = self._router.build_system_prompt(agent, caller=caller)
         context = Context(system_prompt)
+
+        # Add history messages to context if provided
+        if history:
+            for msg in history:
+                self._add_message_to_context(context, msg)
+
         context.add_user(forward_message, attachments=attachments)
         tool_schemas = self._router.build_tool_schemas(agent.name)
 
         while True:
             await self._maybe_summarize(context, agent)
 
-            self._record("llm_call", agent.name, call_id, parent_call_id, {
-                "model": agent.model,
-            })
+            self._record(
+                "llm_call",
+                agent.name,
+                call_id,
+                parent_call_id,
+                {
+                    "model": agent.model,
+                },
+            )
 
             response = await self._router.call_llm(agent, context, tool_schemas)
 
-            self._record("llm_response", agent.name, call_id, parent_call_id, {
-                "has_tool_calls": bool(response.tool_calls),
-                "content_length": len(response.content) if response.content else 0,
-            })
+            self._record(
+                "llm_response",
+                agent.name,
+                call_id,
+                parent_call_id,
+                {
+                    "has_tool_calls": bool(response.tool_calls),
+                    "content_length": len(response.content) if response.content else 0,
+                },
+            )
 
             if not response.tool_calls:
                 logger.warning(
@@ -151,9 +189,15 @@ class Runtime:
             finish_call = _find_finish(response.tool_calls)
             if finish_call is not None:
                 result = finish_call.arguments.get("message", "")
-                self._record("finish", agent.name, call_id, parent_call_id, {
-                    "result": _truncate(result),
-                })
+                self._record(
+                    "finish",
+                    agent.name,
+                    call_id,
+                    parent_call_id,
+                    {
+                        "result": _truncate(result),
+                    },
+                )
                 return result
 
             context.add_assistant_tool_calls(response.tool_calls, response.content)
@@ -169,7 +213,9 @@ class Runtime:
                     context.add_tool_result(tc.id, tc.name, f"Error: {result}")
                 elif isinstance(result, ToolResult):
                     context.add_tool_result(
-                        tc.id, tc.name, result.content,
+                        tc.id,
+                        tc.name,
+                        result.content,
                         attachments=result.attachments,
                     )
                 else:
@@ -184,8 +230,7 @@ class Runtime:
         if agent_name not in self._router.agent_names:
             available = ", ".join(self._router.agent_names) or "(none)"
             raise RoutingError(
-                f"Unknown agent: '{agent_name}'. "
-                f"Available agents: {available}"
+                f"Unknown agent: '{agent_name}'. Available agents: {available}"
             )
         return self._router.get_agent(agent_name)
 
@@ -194,14 +239,12 @@ class Runtime:
             raise ToolError(
                 tool_name,
                 f"'{tool_name}' is an agent, not a tool. "
-                f'Use call_agent(agent_name="{tool_name}", message="...") to call it.'
+                f'Use call_agent(agent_name="{tool_name}", message="...") to call it.',
             )
         if tool_name not in self._router.tool_names:
             available = ", ".join(self._router.tool_names) or "(none)"
             raise ToolError(
-                tool_name,
-                f"Unknown tool: '{tool_name}'. "
-                f"Available tools: {available}"
+                tool_name, f"Unknown tool: '{tool_name}'. Available tools: {available}"
             )
         return self._router.get_tool(tool_name)
 
@@ -211,6 +254,23 @@ class Runtime:
         if tc.name == CALL_AGENT:
             agent_name = tc.arguments.get("agent_name", "")
             message = tc.arguments.get("message", "")
+            history_arg = tc.arguments.get("history")
+
+            history = None
+            if history_arg and isinstance(history_arg, list):
+                history = []
+                for h in history_arg:
+                    if isinstance(h, dict):
+                        history.append(
+                            Message(
+                                type=h.get("type", "forward"),
+                                sender=h.get("sender", ""),
+                                receiver=h.get("receiver", ""),
+                                content=h.get("content", ""),
+                                call_id=uuid.uuid4().hex,
+                            )
+                        )
+
             target = self._resolve_agent_target(agent_name)
 
             sub_call_id = uuid.uuid4().hex
@@ -223,13 +283,24 @@ class Runtime:
                     call_id=sub_call_id,
                 )
             )
-            self._record("agent_call", agent_name, sub_call_id, caller_call_id, {
-                "from": caller_name,
-                "message": _truncate(message),
-            })
+            self._record(
+                "agent_call",
+                agent_name,
+                sub_call_id,
+                caller_call_id,
+                {
+                    "from": caller_name,
+                    "message": _truncate(message),
+                },
+            )
 
             result = await self._run_agent_loop(
-                target, message, sub_call_id, caller_call_id, caller_name
+                target,
+                message,
+                sub_call_id,
+                caller_call_id,
+                caller_name,
+                history=history,
             )
 
             self._messages.append(
@@ -241,24 +312,34 @@ class Runtime:
                     call_id=sub_call_id,
                 )
             )
-            self._record("agent_return", agent_name, sub_call_id, caller_call_id, {
-                "result": _truncate(result),
-            })
+            self._record(
+                "agent_return",
+                agent_name,
+                sub_call_id,
+                caller_call_id,
+                {
+                    "result": _truncate(result),
+                },
+            )
             return result
 
-        self._record("tool_exec", caller_name, caller_call_id, None, {
-            "tool_name": tc.name,
-            "arguments": tc.arguments,
-        })
+        self._record(
+            "tool_exec",
+            caller_name,
+            caller_call_id,
+            None,
+            {
+                "tool_name": tc.name,
+                "arguments": tc.arguments,
+            },
+        )
         tool = self._resolve_tool_target(tc.name)
         try:
             return await tool.execute(**tc.arguments)
         except Exception as exc:
             raise ToolError(tc.name, str(exc)) from exc
 
-    async def _maybe_summarize(
-        self, context: Context, agent: Agent
-    ) -> None:
+    async def _maybe_summarize(self, context: Context, agent: Agent) -> None:
         context_window = agent.context_window
         if context_window is None:
             try:
@@ -291,9 +372,7 @@ class Runtime:
                     estimate_context_tokens(context),
                 )
         except Exception as exc:
-            logger.warning(
-                "[%s] Self-summarization failed: %s", agent.name, exc
-            )
+            logger.warning("[%s] Self-summarization failed: %s", agent.name, exc)
 
     # --- Streaming ---
 
@@ -303,6 +382,7 @@ class Runtime:
         forward_message: str,
         *,
         attachments: list[Attachment] | None = None,
+        history: list[Message] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         from agentouto.streaming import StreamEvent
 
@@ -320,7 +400,13 @@ class Runtime:
 
         output = ""
         async for event in self._stream_agent_loop(
-            agent, forward_message, call_id, None, "user", attachments=attachments
+            agent,
+            forward_message,
+            call_id,
+            None,
+            "user",
+            attachments=attachments,
+            history=history,
         ):
             if event.type == "finish":
                 output = event.data.get("output", "")
@@ -345,11 +431,17 @@ class Runtime:
         caller: str | None = None,
         *,
         attachments: list[Attachment] | None = None,
+        history: list[Message] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         from agentouto.streaming import StreamEvent
 
         system_prompt = self._router.build_system_prompt(agent, caller=caller)
         context = Context(system_prompt)
+
+        if history:
+            for msg in history:
+                self._add_message_to_context(context, msg)
+
         context.add_user(forward_message, attachments=attachments)
         tool_schemas = self._router.build_tool_schemas(agent.name)
 
@@ -357,9 +449,7 @@ class Runtime:
             await self._maybe_summarize(context, agent)
 
             response = None
-            async for chunk in self._router.stream_llm(
-                agent, context, tool_schemas
-            ):
+            async for chunk in self._router.stream_llm(agent, context, tool_schemas):
                 if isinstance(chunk, str):
                     yield StreamEvent(
                         type="token",
@@ -466,13 +556,29 @@ class Runtime:
                         result = f"Error: {exc}"
                     if isinstance(result, ToolResult):
                         context.add_tool_result(
-                            tc.id, tc.name, result.content,
+                            tc.id,
+                            tc.name,
+                            result.content,
                             attachments=result.attachments,
                         )
                     else:
                         context.add_tool_result(tc.id, tc.name, result)
 
     # --- Helpers ---
+
+    def _add_message_to_context(self, context: Context, message: Message) -> None:
+        if message.type == "forward":
+            if message.sender == "user":
+                context.add_user(message.content, attachments=message.attachments)
+            else:
+                context.add_user(
+                    f"[Forwarded from {message.sender}]: {message.content}",
+                    attachments=message.attachments,
+                )
+        elif message.type == "return":
+            context.add_assistant_text(
+                f"[Return from {message.sender}]: {message.content}"
+            )
 
     def _record(
         self,
@@ -492,9 +598,7 @@ class Runtime:
             details=details,
         )
         self._event_log.record(event)
-        logger.debug(
-            "[%s] %s cid=%s %s", agent_name, event_type, call_id[:8], details
-        )
+        logger.debug("[%s] %s cid=%s %s", agent_name, event_type, call_id[:8], details)
 
 
 def _find_finish(tool_calls: list[ToolCall]) -> ToolCall | None:
@@ -518,11 +622,14 @@ async def async_run(
     providers: list[Provider],
     *,
     attachments: list[Attachment] | None = None,
+    history: list[Message] | None = None,
     debug: bool = False,
 ) -> RunResult:
     router = Router(agents, tools, providers)
     runtime = Runtime(router, debug=debug)
-    return await runtime.execute(entry, message, attachments=attachments)
+    return await runtime.execute(
+        entry, message, attachments=attachments, history=history
+    )
 
 
 def run(
@@ -533,11 +640,18 @@ def run(
     providers: list[Provider],
     *,
     attachments: list[Attachment] | None = None,
+    history: list[Message] | None = None,
     debug: bool = False,
 ) -> RunResult:
     return asyncio.run(
         async_run(
-            entry, message, agents, tools, providers,
-            attachments=attachments, debug=debug,
+            entry,
+            message,
+            agents,
+            tools,
+            providers,
+            attachments=attachments,
+            history=history,
+            debug=debug,
         )
     )

@@ -66,6 +66,23 @@ class Router:
                             "type": "string",
                             "description": "Message to send to the agent",
                         },
+                        "history": {
+                            "type": "array",
+                            "description": "Optional conversation history to attach (from previous RunResult.messages)",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "enum": ["forward", "return"],
+                                    },
+                                    "sender": {"type": "string"},
+                                    "receiver": {"type": "string"},
+                                    "content": {"type": "string"},
+                                },
+                                "required": ["type", "sender", "receiver", "content"],
+                            },
+                        },
                     },
                     "required": ["agent_name", "message"],
                 },
@@ -97,16 +114,16 @@ class Router:
         return schemas
 
     def build_system_prompt(self, agent: Agent, caller: str | None = None) -> str:
-        other_agents = [
-            a for a in self._agents.values() if a.name != agent.name
-        ]
+        other_agents = [a for a in self._agents.values() if a.name != agent.name]
 
         lines = [f'You are "{agent.name}". {agent.instructions}']
 
         if caller:
             lines.append("")
             lines.append(f"INVOKED BY: You have been called by '{caller}'. ")
-            lines.append("Consider their request carefully and fulfill it to the best of your ability.")
+            lines.append(
+                "Consider their request carefully and fulfill it to the best of your ability."
+            )
 
         if other_agents:
             lines.append("")
@@ -116,24 +133,40 @@ class Router:
 
         lines.append("")
         lines.append("PARALLEL EXECUTION:")
-        lines.append("- You can call MULTIPLE agents AT ONCE by including multiple call_agent tool calls in your single response.")
-        lines.append("- When you call multiple agents simultaneously, they execute in PARALLEL — this is MUCH FASTER than sequential calls.")
-        lines.append("- Use parallel execution when: tasks are independent, you need diverse perspectives, or gathering information from multiple sources.")
-        lines.append("- Example: One response with 3 call_agent calls = 3 agents working simultaneously.")
+        lines.append(
+            "- You can call MULTIPLE agents AT ONCE by including multiple call_agent tool calls in your single response."
+        )
+        lines.append(
+            "- When you call multiple agents simultaneously, they execute in PARALLEL — this is MUCH FASTER than sequential calls."
+        )
+        lines.append(
+            "- Use parallel execution when: tasks are independent, you need diverse perspectives, or gathering information from multiple sources."
+        )
+        lines.append(
+            "- Example: One response with 3 call_agent calls = 3 agents working simultaneously."
+        )
 
         lines.append("")
         lines.append("COLLABORATION GUIDELINES:")
-        lines.append("- Be enthusiastic about collaborating with other agents — teamwork makes the work better.")
-        lines.append("- Follow your role precisely — stay true to your defined purpose and expertise.")
-        lines.append("- When asked to collaborate, engage actively and contribute your best work.")
+        lines.append(
+            "- Be enthusiastic about collaborating with other agents — teamwork makes the work better."
+        )
+        lines.append(
+            "- Follow your role precisely — stay true to your defined purpose and expertise."
+        )
+        lines.append(
+            "- When asked to collaborate, engage actively and contribute your best work."
+        )
         lines.append("- Delegate tasks to other agents when it improves the result.")
-        lines.append("- Provide constructive feedback to help other agents improve their work.")
+        lines.append(
+            "- Provide constructive feedback to help other agents improve their work."
+        )
 
         lines.append("")
         lines.append(
             "IMPORTANT: You MUST call the finish tool to return your final result. "
             "Plain text responses are NOT delivered to the caller — "
-            "only finish(message=\"...\") will be received. "
+            'only finish(message="...") will be received. '
             "Never respond with plain text when you are done."
         )
         lines.append("Use call_agent to delegate work to other agents.")
@@ -145,7 +178,9 @@ class Router:
             self._backends[kind] = get_backend(kind)
         return self._backends[kind]
 
-    async def call_llm(self, agent: Agent, context: Context, tool_schemas: list[dict[str, Any]]) -> LLMResponse:
+    async def call_llm(
+        self, agent: Agent, context: Context, tool_schemas: list[dict[str, Any]]
+    ) -> LLMResponse:
         provider = self._providers.get(agent.provider)
         if provider is None:
             raise ProviderError(agent.provider, "Provider not found")

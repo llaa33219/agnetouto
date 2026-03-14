@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from agentouto.agent import Agent
 from agentouto.context import Attachment
+from agentouto.message import Message
 from agentouto.provider import Provider
 from agentouto.tool import Tool
 
@@ -25,11 +26,14 @@ async def async_run_stream(
     providers: list[Provider],
     *,
     attachments: list[Attachment] | None = None,
+    history: list[Message] | None = None,
 ) -> AsyncIterator[StreamEvent]:
     from agentouto.router import Router
     from agentouto.runtime import Runtime
 
     router = Router(agents, tools, providers)
     runtime = Runtime(router)
-    async for event in runtime.execute_stream(entry, message, attachments=attachments):
+    async for event in runtime.execute_stream(
+        entry, message, attachments=attachments, history=history
+    ):
         yield event

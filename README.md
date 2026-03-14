@@ -397,6 +397,46 @@ class Message:
 
 Two types. No exceptions.
 
+### Conversation History
+
+You can pass previous conversation history to an agent to maintain context across calls. Use `RunResult.messages` from a previous run:
+
+```python
+from agentouto import run, Agent, Provider
+
+# First conversation
+result1 = run(
+    entry=researcher,
+    message="Research AI trends.",
+    agents=[researcher],
+    tools=[],
+    providers=[openai],
+)
+
+# Continue with history
+result2 = run(
+    entry=writer,
+    message="Write about what you found.",
+    agents=[writer, researcher],
+    tools=[],
+    providers=[openai],
+    history=result1.messages,  # Pass previous messages
+)
+```
+
+You can also use `history` with `call_agent` tool. The LLM can pass conversation history when calling another agent:
+
+```python
+# The LLM can call:
+call_agent(
+    agent_name="writer",
+    message="Continue the report.",
+    history=[...]  # Optional array of previous Message objects
+)
+```
+
+History is prepended to the agent's context before the new forward message, allowing the agent to have continuity with previous conversations.
+
 ---
 
 ## Supported Providers
@@ -425,6 +465,19 @@ result = await async_run(
 )
 ```
 
+You can also pass conversation history:
+
+```python
+result = await async_run(
+    entry=writer,
+    message="Continue the report.",
+    agents=[writer, researcher],
+    tools=[],
+    providers=[openai],
+    history=previous_result.messages,  # Pass previous messages
+)
+```
+
 ### Streaming
 
 ```python
@@ -441,6 +494,20 @@ async for event in async_run_stream(
         print(event.data["token"], end="", flush=True)
     elif event.type == "finish":
         print(f"\n--- {event.agent_name} finished ---")
+```
+
+Streaming also supports history:
+
+```python
+async for event in async_run_stream(
+    entry=writer,
+    message="Continue writing.",
+    agents=[writer, researcher],
+    tools=[],
+    providers=[openai],
+    history=previous_result.messages,
+):
+    ...
 ```
 
 ---
@@ -496,6 +563,7 @@ agentouto/
 | **10** | Auto max output tokens + safe JSON argument parsing | ✅ Done |
 | **13** | OpenAI Responses API backend (`openai_responses`) | ✅ Done |
 | **15** | OAuth authentication (OpenAI, Claude, Google) | ✅ Done |
+| **16** | Conversation history (`history` parameter) | ✅ Done |
 
 ---
 

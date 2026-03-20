@@ -10,6 +10,7 @@ _API_BASE_URL = "https://lcw-api.blp.sh"
 
 try:
     import aiohttp
+
     _AIOHTTP_AVAILABLE = True
 except ImportError:
     _AIOHTTP_AVAILABLE = False
@@ -27,11 +28,11 @@ class ModelMetadataError(Exception):
 
 def _normalize_model_name(name: str) -> str:
     """Normalize model name for consistent cache keys.
-    
+
     gpt-4o, GPT-4O, gpt_4o, gpt 4o → gpt-4o
     """
     normalized = name.lower().strip()
-    normalized = re.sub(r'[\s_]+', '-', normalized)
+    normalized = re.sub(r"[\s_]+", "-", normalized)
     return normalized
 
 
@@ -73,6 +74,7 @@ async def _fetch_model(model: str) -> ModelMetadata:
 
                 model_data = data.get("data", {})
                 context_window = model_data.get("contextWindow")
+                max_output_tokens = model_data.get("maxOutputTokens")
 
                 if context_window is None:
                     raise ModelMetadataError(
@@ -81,7 +83,7 @@ async def _fetch_model(model: str) -> ModelMetadata:
 
                 meta = ModelMetadata(
                     context_window=context_window,
-                    max_output_tokens=context_window,  # Same as context_window
+                    max_output_tokens=max_output_tokens,
                 )
 
                 # Cache under normalized key
@@ -95,7 +97,8 @@ async def _fetch_model(model: str) -> ModelMetadata:
 
                 logger.debug(
                     "Fetched metadata for '%s': context_window=%d",
-                    model, context_window,
+                    model,
+                    context_window,
                 )
 
                 return meta
@@ -103,9 +106,7 @@ async def _fetch_model(model: str) -> ModelMetadata:
     except ModelMetadataError:
         raise
     except Exception as e:
-        raise ModelMetadataError(
-            f"Failed to fetch model metadata for '{model}': {e}"
-        )
+        raise ModelMetadataError(f"Failed to fetch model metadata for '{model}': {e}")
 
 
 async def ensure_loaded() -> None:

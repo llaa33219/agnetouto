@@ -150,7 +150,7 @@ def clear_cache() -> None
 - 첫 번째 조회 시 API에서 메타데이터를 가져와 캐시
 - 이후 조회는 캐시에서 즉시 반환
 - 모델을 찾지 못하면 `ModelMetadataError` 예외 발생
-- `max_output_tokens`는 API에서 제공하지 않음 (`None` 반환)
+- `max_output_tokens`는 API의 `maxOutputTokens` 필드에서 제공 (`None`일 수 있음)
 
 ### `message.py` — Message
 

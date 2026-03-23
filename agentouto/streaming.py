@@ -13,7 +13,15 @@ from agentouto.tool import Tool
 
 @dataclass
 class StreamEvent:
-    type: Literal["token", "tool_call", "agent_call", "agent_return", "finish", "error"]
+    type: Literal[
+        "token",
+        "tool_call",
+        "tool_result",
+        "agent_call",
+        "agent_return",
+        "finish",
+        "error",
+    ]
     agent_name: str
     data: dict[str, Any] = field(default_factory=dict)
 

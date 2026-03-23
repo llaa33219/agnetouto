@@ -487,82 +487,28 @@ class Runtime:
 
             context.add_assistant_tool_calls(response.tool_calls, response.content)
 
-            for tc in response.tool_calls:
-                if tc.name == CALL_AGENT:
-                    target_name = tc.arguments.get("agent_name", "")
-                    msg = tc.arguments.get("message", "")
-                    try:
-                        target = self._resolve_agent_target(target_name)
-                    except Exception as exc:
-                        context.add_tool_result(tc.id, tc.name, f"Error: {exc}")
-                        continue
-
-                    try:
-                        sub_call_id = uuid.uuid4().hex
-                        self._messages.append(
-                            Message(
-                                type="forward",
-                                sender=agent.name,
-                                receiver=target_name,
-                                content=msg,
-                                call_id=sub_call_id,
-                            )
-                        )
-                        yield StreamEvent(
-                            type="agent_call",
-                            agent_name=target_name,
-                            data={"from": agent.name, "message": _truncate(msg)},
-                        )
-
-                        sub_result = ""
-                        async for sub_event in self._stream_agent_loop(
-                            target, msg, sub_call_id, call_id, agent.name
-                        ):
-                            yield sub_event
-                            if sub_event.type == "finish":
-                                sub_result = sub_event.data.get("output", "")
-
-                        self._messages.append(
-                            Message(
-                                type="return",
-                                sender=target_name,
-                                receiver=agent.name,
-                                content=sub_result,
-                                call_id=sub_call_id,
-                            )
-                        )
-                        yield StreamEvent(
-                            type="agent_return",
-                            agent_name=target_name,
-                            data={"result": _truncate(sub_result)},
-                        )
-                        context.add_tool_result(tc.id, tc.name, sub_result)
-                    except Exception as exc:
-                        context.add_tool_result(tc.id, tc.name, f"Error: {exc}")
-                else:
-                    try:
-                        tool = self._resolve_tool_target(tc.name)
-                    except Exception as exc:
-                        context.add_tool_result(tc.id, tc.name, f"Error: {exc}")
-                        continue
+            # Process tool calls in parallel using asyncio.gather
+            tool_call_tasks = [
+                self._execute_streaming_tool_call(
+                    tc, agent.name, call_id, context
+                )
+                for tc in response.tool_calls
+            ]
+            # Run all tool calls concurrently and collect all events
+            all_events = await asyncio.gather(*tool_call_tasks, return_exceptions=True)
+            # Yield events in the order they were collected
+            for events in all_events:
+                if isinstance(events, Exception):
+                    # This shouldn't happen since we handle exceptions internally,
+                    # but yield it as an error event if it does
                     yield StreamEvent(
-                        type="tool_call",
+                        type="error",
                         agent_name=agent.name,
-                        data={"tool_name": tc.name, "arguments": tc.arguments},
+                        data={"error": f"Unexpected error: {events}"},
                     )
-                    try:
-                        result = await tool.execute(**tc.arguments)
-                    except Exception as exc:
-                        result = f"Error: {exc}"
-                    if isinstance(result, ToolResult):
-                        context.add_tool_result(
-                            tc.id,
-                            tc.name,
-                            result.content,
-                            attachments=result.attachments,
-                        )
-                    else:
-                        context.add_tool_result(tc.id, tc.name, result)
+                elif events is not None:
+                    for event in events:
+                        yield event
 
     # --- Helpers ---
 
@@ -579,6 +525,136 @@ class Runtime:
             context.add_assistant_text(
                 f"[Return from {message.sender}]: {message.content}"
             )
+
+    async def _execute_streaming_tool_call(
+        self,
+        tc: ToolCall,
+        caller_name: str,
+        caller_call_id: str,
+        context: Context,
+    ) -> list[StreamEvent]:
+        from agentouto.streaming import StreamEvent
+
+        events: list[StreamEvent] = []
+
+        if tc.name == CALL_AGENT:
+            target_name = tc.arguments.get("agent_name", "")
+            msg = tc.arguments.get("message", "")
+            try:
+                target = self._resolve_agent_target(target_name)
+            except Exception as exc:
+                context.add_tool_result(tc.id, tc.name, f"Error: {exc}")
+                events.append(StreamEvent(
+                    type="error",
+                    agent_name=caller_name,
+                    data={"error": str(exc)},
+                ))
+                return events
+
+            try:
+                sub_call_id = uuid.uuid4().hex
+                self._messages.append(
+                    Message(
+                        type="forward",
+                        sender=caller_name,
+                        receiver=target_name,
+                        content=msg,
+                        call_id=sub_call_id,
+                    )
+                )
+                events.append(StreamEvent(
+                    type="agent_call",
+                    agent_name=target_name,
+                    data={"from": caller_name, "message": _truncate(msg)},
+                ))
+
+                sub_result = ""
+                async for sub_event in self._stream_agent_loop(
+                    target, msg, sub_call_id, caller_call_id, caller_name
+                ):
+                    events.append(sub_event)
+                    if sub_event.type == "finish":
+                        sub_result = sub_event.data.get("output", "")
+
+                self._messages.append(
+                    Message(
+                        type="return",
+                        sender=target_name,
+                        receiver=caller_name,
+                        content=sub_result,
+                        call_id=sub_call_id,
+                    )
+                )
+                events.append(StreamEvent(
+                    type="agent_return",
+                    agent_name=target_name,
+                    data={"result": _truncate(sub_result)},
+                ))
+                context.add_tool_result(tc.id, tc.name, sub_result)
+            except Exception as exc:
+                context.add_tool_result(tc.id, tc.name, f"Error: {exc}")
+                events.append(StreamEvent(
+                    type="error",
+                    agent_name=caller_name,
+                    data={"error": str(exc)},
+                ))
+        else:
+            try:
+                tool = self._resolve_tool_target(tc.name)
+            except Exception as exc:
+                context.add_tool_result(tc.id, tc.name, f"Error: {exc}")
+                events.append(StreamEvent(
+                    type="error",
+                    agent_name=caller_name,
+                    data={"error": str(exc)},
+                ))
+                return events
+
+            events.append(StreamEvent(
+                type="tool_call",
+                agent_name=caller_name,
+                data={"tool_name": tc.name, "arguments": tc.arguments},
+            ))
+            try:
+                result = await tool.execute(**tc.arguments)
+            except Exception as exc:
+                result = f"Error: {exc}"
+            if isinstance(result, ToolResult):
+                context.add_tool_result(
+                    tc.id,
+                    tc.name,
+                    result.content,
+                    attachments=result.attachments,
+                )
+                attachments_data = None
+                if result.attachments:
+                    attachments_data = [
+                        {
+                            "mime_type": att.mime_type,
+                            "data": att.data,
+                            "url": att.url,
+                            "name": att.name,
+                        }
+                        for att in result.attachments
+                    ]
+                events.append(StreamEvent(
+                    type="tool_result",
+                    agent_name=caller_name,
+                    data={
+                        "tool_name": tc.name,
+                        "result": result.content,
+                        "attachments": attachments_data,
+                    },
+                ))
+            else:
+                context.add_tool_result(tc.id, tc.name, result)
+                events.append(StreamEvent(
+                    type="tool_result",
+                    agent_name=caller_name,
+                    data={"tool_name": tc.name, "result": str(result)},
+                ))
+
+        return events
 
     def _record(
         self,

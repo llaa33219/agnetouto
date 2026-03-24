@@ -437,9 +437,9 @@ call_agent(
 
 History is prepended to the agent's context before the new forward message, allowing the agent to have continuity with previous conversations.
 
-### Debugging & Tracing
+### Tracking Parallel Agent Calls
 
-Enable `debug=True` to get structured event logs and call traces:
+Every agent call is automatically assigned a unique `call_id` (UUID), so even when the same agent name is called multiple times in parallel, each invocation is tracked separately.
 
 ```python
 result = run(
@@ -448,19 +448,47 @@ result = run(
     agents=[researcher, writer, reviewer],
     tools=[search_web],
     providers=[openai, anthropic],
-    debug=True,  # Enable EventLog and Trace
 )
+
+# Track all messages - call_id is always available
+for msg in result.messages:
+    print(f"{msg.sender} → {msg.receiver} [call_id={msg.call_id[:8]}] {msg.type}")
+```
+
+**Example output when the same agent is called in parallel:**
+```
+user → researcher [call_id=a1b2c3d4] forward
+researcher → researcher [call_id=e5f6g7h8] forward
+researcher → researcher [call_id=i9j0k1l2] forward
+researcher → user [call_id=a1b2c3d4] return
+researcher → user [call_id=e5f6g7h8] return
+researcher → user [call_id=i9j0k1l2] return
+```
+
+**Filtering by receiver to see all calls to a specific agent:**
+```python
+for msg in result.messages:
+    if msg.receiver == "researcher" and msg.type == "forward":
+        print(f"call_id={msg.call_id[:8]}: {msg.content[:50]}...")
+```
+
+### Debug Mode (Optional)
+
+For structured event logs and call tree visualization, enable `debug=True`:
+
+```python
+result = run(..., debug=True)
 
 # Print the call tree
 print(result.format_trace())
 
-# Access event log for filtering
+# Access event log for filtering by agent or event type
 events = result.event_log.filter(event_type="agent_call")
 for e in events:
     print(f"{e.agent_name}: {e.call_id[:8]} from parent={e.parent_call_id}")
 ```
 
-**Tracking parallel agents with the same name**: Each agent call gets a unique `call_id` (UUID). Even if the same agent name is called multiple times in parallel, each invocation is tracked separately via its own `call_id`. Use `event_log.filter(agent_name="...")` to see all invocations of a specific agent, or filter by `event_type` to see only calls or returns.
+Debug mode is optional — basic call tracking via `call_id` in `RunResult.messages` works without it.
 
 See [`ai-docs/MESSAGE_PROTOCOL.md`](./ai-docs/MESSAGE_PROTOCOL.md#10-병렬로-호출된-동일-이름-에이전트-추적) for detailed tracking documentation.
 

@@ -295,7 +295,23 @@ A(call_agent B) → B(call_agent A) → A(call_agent A) → A(finish) → A(fini
 
 같은 이름의 에이전트가 여러 번 병렬로 호출되어도, 각 호출은 고유한 `call_id`로 구분된다.
 
-### call_id / parent_call_id 구조
+### 추적 구조: 두 가지 수준
+
+#### 수준 1: Message.call_id (항상 사용 가능)
+
+모든 메시지는 `call_id`를 가지며, `RunResult.messages`에 항상 기록된다:
+
+```python
+@dataclass
+class Message:
+    type: Literal["forward", "return"]
+    sender: str
+    receiver: str
+    content: str
+    call_id: str  # uuid4 자동 생성 — 항상 고유
+```
+
+#### 수준 2: EventLog / Trace (debug=True 필요)
 
 ```python
 @dataclass
@@ -305,8 +321,6 @@ class AgentEvent:
     call_id: str              # 고유 식별자 — 실제 추적 키
     parent_call_id: str | None  # 부모 호출 ID (누가 호출했는지)
 ```
-
-**핵심 규칙**: `agent_name`이 아니라 `call_id`가 추적의 실제 키다.
 
 ### 병렬 호출 예시
 
@@ -328,10 +342,20 @@ Agent A의 LLM 응답:
 
 ### 추적 방법
 
-#### 1. EventLog로 필터링
+#### 1. Message 목록에서 확인 (항상 가능)
 
 ```python
-result = run(entry=researcher, ..., debug=True)
+result = run(entry=a, ...)
+
+for msg in result.messages:
+    if msg.receiver == "researcher":
+        print(f"call_id={msg.call_id[:8]} {msg.type}: {msg.content[:50]}")
+```
+
+#### 2. EventLog로 필터링 (debug=True 필요)
+
+```python
+result = run(entry=a, ..., debug=True)
 
 # agent_name으로 필터 (같은 이름의 모든 호출)
 events = result.event_log.filter(agent_name="researcher")
@@ -343,7 +367,7 @@ calls = result.event_log.filter(event_type="agent_call")
 returns = result.event_log.filter(event_type="agent_return")
 ```
 
-#### 2. Trace로 트리 시각화
+#### 3. Trace로 트리 시각화 (debug=True 필요)
 
 ```python
 result = run(entry=a, ..., debug=True)
@@ -359,46 +383,12 @@ print(result.trace.print_tree())
     └── ⚡ fetch_data
 ```
 
-#### 3. Message 목록에서 확인
-
-```python
-for msg in result.messages:
-    if msg.receiver == "researcher":
-        print(f"call_id={msg.call_id[:8]} {msg.type}: {msg.content[:50]}")
-```
-
-### 디버그 모드 사용법
-
-```python
-from agentouto import run
-
-result = run(
-    entry=researcher,
-    message="Research AI trends.",
-    agents=[researcher, writer],
-    tools=[search_web],
-    providers=[openai],
-    debug=True,  # EventLog와 Trace 활성화
-)
-
-# EventLog 접근
-print(result.event_log.format())
-
-# Trace 트리 출력
-print(result.format_trace())
-
-# 필터링
-calls = result.event_log.filter(event_type="agent_call")
-for c in calls:
-    print(f"{c.agent_name}: {c.call_id[:8]} from {c.parent_call_id[:8] if c.parent_call_id else 'root'}")
-```
-
 ### 요약
 
-| 추적 요소 | 용도 |
-|---------|------|
-| `call_id` | 각 에이전트 호출의 고유 식별자 |
-| `parent_call_id` | 호출 관계 (어떤 에이전트가 호출했는지) |
-| `agent_name` | 에이전트 이름 (중복 가능) |
-| `event_log.filter()` | 조건별 이벤트 필터링 |
-| `trace.print_tree()` | 호출 트리 시각화 |
+| 추적 수준 | 데이터 | 항상 가능 | debug=True 필요 |
+|-----------|--------|-----------|-----------------|
+| Message.call_id | `RunResult.messages` | ✅ | ❌ |
+| EventLog | `result.event_log` | ❌ | ✅ |
+| Trace | `result.trace` | ❌ | ✅ |
+
+**핵심 규칙**: `agent_name`이 아니라 `call_id`가 추적의 실제 키다.

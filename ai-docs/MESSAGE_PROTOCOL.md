@@ -288,3 +288,117 @@ A(call_agent B) → B(call_agent A) → A(call_agent A) → A(finish) → A(fini
 각 `→`는 독립적인 Context를 가진 별도의 루프 인스턴스다. 같은 이름의 에이전트라도 각 호출은 독립적이다.
 
 시스템 레벨에서 이를 차단하지 않는다. LLM의 `instructions`로 자연어 제어만 가능하다.
+
+---
+
+## 10. 병렬로 호출된 동일 이름 에이전트 추적
+
+같은 이름의 에이전트가 여러 번 병렬로 호출되어도, 각 호출은 고유한 `call_id`로 구분된다.
+
+### call_id / parent_call_id 구조
+
+```python
+@dataclass
+class AgentEvent:
+    event_type: EventType
+    agent_name: str           # 에이전트 이름 (중복 가능)
+    call_id: str              # 고유 식별자 — 실제 추적 키
+    parent_call_id: str | None  # 부모 호출 ID (누가 호출했는지)
+```
+
+**핵심 규칙**: `agent_name`이 아니라 `call_id`가 추적의 실제 키다.
+
+### 병렬 호출 예시
+
+```
+Agent A의 LLM 응답:
+  tool_calls: [
+    call_agent(agent_name="researcher", message="..."),  # sub_call_id = "abc123"
+    call_agent(agent_name="researcher", message="..."),  # sub_call_id = "def456"
+  ]
+
+→ asyncio.gather로 동시 실행:
+  _run_agent_loop(researcher, "abc123", parent="A의 call_id")
+  _run_agent_loop(researcher, "def456", parent="A의 call_id")
+```
+
+두 "researcher"는 이름이 같지만:
+- 첫 번째: `call_id="abc123"`, `parent_call_id="A의 call_id"`
+- 두 번째: `call_id="def456"`, `parent_call_id="A의 call_id"`
+
+### 추적 방법
+
+#### 1. EventLog로 필터링
+
+```python
+result = run(entry=researcher, ..., debug=True)
+
+# agent_name으로 필터 (같은 이름의 모든 호출)
+events = result.event_log.filter(agent_name="researcher")
+for e in events:
+    print(f"{e.call_id[:8]} {e.event_type} {e.details}")
+
+# event_type으로 필터
+calls = result.event_log.filter(event_type="agent_call")
+returns = result.event_log.filter(event_type="agent_return")
+```
+
+#### 2. Trace로 트리 시각화
+
+```python
+result = run(entry=a, ..., debug=True)
+print(result.trace.print_tree())
+```
+
+출력 예시:
+```
+[a] (2.50s)
+├── [researcher] (1.00s)       ← call_id=abc123...
+│   └── ⚡ search_web
+└── [researcher] (1.20s)       ← call_id=def456... (같은 이름이지만 별도 노드)
+    └── ⚡ fetch_data
+```
+
+#### 3. Message 목록에서 확인
+
+```python
+for msg in result.messages:
+    if msg.receiver == "researcher":
+        print(f"call_id={msg.call_id[:8]} {msg.type}: {msg.content[:50]}")
+```
+
+### 디버그 모드 사용법
+
+```python
+from agentouto import run
+
+result = run(
+    entry=researcher,
+    message="Research AI trends.",
+    agents=[researcher, writer],
+    tools=[search_web],
+    providers=[openai],
+    debug=True,  # EventLog와 Trace 활성화
+)
+
+# EventLog 접근
+print(result.event_log.format())
+
+# Trace 트리 출력
+print(result.format_trace())
+
+# 필터링
+calls = result.event_log.filter(event_type="agent_call")
+for c in calls:
+    print(f"{c.agent_name}: {c.call_id[:8]} from {c.parent_call_id[:8] if c.parent_call_id else 'root'}")
+```
+
+### 요약
+
+| 추적 요소 | 용도 |
+|---------|------|
+| `call_id` | 각 에이전트 호출의 고유 식별자 |
+| `parent_call_id` | 호출 관계 (어떤 에이전트가 호출했는지) |
+| `agent_name` | 에이전트 이름 (중복 가능) |
+| `event_log.filter()` | 조건별 이벤트 필터링 |
+| `trace.print_tree()` | 호출 트리 시각화 |

@@ -437,6 +437,33 @@ call_agent(
 
 History is prepended to the agent's context before the new forward message, allowing the agent to have continuity with previous conversations.
 
+### Debugging & Tracing
+
+Enable `debug=True` to get structured event logs and call traces:
+
+```python
+result = run(
+    entry=researcher,
+    message="Research AI trends.",
+    agents=[researcher, writer, reviewer],
+    tools=[search_web],
+    providers=[openai, anthropic],
+    debug=True,  # Enable EventLog and Trace
+)
+
+# Print the call tree
+print(result.format_trace())
+
+# Access event log for filtering
+events = result.event_log.filter(event_type="agent_call")
+for e in events:
+    print(f"{e.agent_name}: {e.call_id[:8]} from parent={e.parent_call_id}")
+```
+
+**Tracking parallel agents with the same name**: Each agent call gets a unique `call_id` (UUID). Even if the same agent name is called multiple times in parallel, each invocation is tracked separately via its own `call_id`. Use `event_log.filter(agent_name="...")` to see all invocations of a specific agent, or filter by `event_type` to see only calls or returns.
+
+See [`ai-docs/MESSAGE_PROTOCOL.md`](./ai-docs/MESSAGE_PROTOCOL.md#10-병렬로-호출된-동일-이름-에이전트-추적) for detailed tracking documentation.
+
 ---
 
 ## Supported Providers

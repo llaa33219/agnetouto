@@ -259,6 +259,27 @@ class Router:
         )
 
         lines.append("")
+        lines.append("BACKGROUND EXECUTION:")
+        lines.append(
+            "- Use call_agent(agent_name, message, background=True) to spawn an agent that runs independently."
+        )
+        lines.append(
+            "- When background=True, the agent runs in a SEPARATE loop and returns a task_id immediately."
+        )
+        lines.append(
+            "- Use send_message(task_id, message) to send messages to a running background agent."
+        )
+        lines.append(
+            "- Use get_messages(task_id) to check status and retrieve messages from a background agent."
+        )
+        lines.append(
+            "- Background agents are ideal for: long-running tasks, concurrent work, agents that need to receive messages mid-execution."
+        )
+        lines.append(
+            "- Unlike parallel call_agent (same loop), background agents have their own isolated loop and context."
+        )
+
+        lines.append("")
         lines.append(
             "IMPORTANT: You MUST call the finish tool to return your final result. "
             "Plain text responses are NOT delivered to the caller — "

@@ -366,6 +366,19 @@ get_messages(task_id="bg_abc123", clear=False)
 - `asyncio.gather`: 같은 루프 iteration에서 여러 도구/에이전트를 동시 실행
 - 백그라운드: 완전히 별개의 루프에서 독립적 에이전트 실행 + 통신 가능
 
+### 메시지 주입 타이밍
+
+`send_message`로 전송된 메시지는 **에이전트 루프의 다음 iteration 시작 시** 처리된다:
+
+```
+1. Agent Loop Iteration N: LLM Call → output → output → tool_calls → iteration ends
+2. User calls send_message(task_id, "추가 요청") → message injected into queue
+3. Agent Loop Iteration N+1: queue check → injected_msg found → context.add_user("추가 요청")
+4. LLM이 기존 context + 새로운 메시지 포함해서 계속 진행 → output → output → finish
+```
+
+즉, LLM이 출력을 생성중일 때는interrupt되지 않고, 다음 iteration에서 자연스럽게 처리된다.
+
 ---
 
 ## 10. 병렬로 호출된 동일 이름 에이전트 추적

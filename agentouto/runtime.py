@@ -920,3 +920,114 @@ def run(
             debug=debug,
         )
     )
+
+
+def send_message_to_background_agent(task_id: str, message: str) -> str:
+    """Send a message to a background agent.
+
+    This is a user-facing function to communicate with agents running in
+    isolated background loops. The agent will receive the message as a
+    new user input in its running loop.
+
+    Args:
+        task_id: The task ID returned when spawning a background agent
+                 (e.g., "bg_abc123" from call_agent with background=True)
+        message: The message content to send to the agent
+
+    Returns:
+        A confirmation string with the agent name and task_id
+
+    Raises:
+        AgentError: If no background agent with the given task_id exists
+
+    Example:
+        # Agent A spawns B in background
+        # call_agent(agent_name="B", message="Work", background=True)
+        # Returns: "Background agent started. Task ID: bg_abc123"
+        #
+        # User sends message to B:
+        send_message_to_background_agent("bg_abc123", "Add more details")
+    """
+    from agentouto.loop_manager import AgentLoopRegistry
+
+    registry = AgentLoopRegistry.get_instance()
+    bg_loop = registry.get_loop(task_id)
+
+    if bg_loop is None:
+        from agentouto.exceptions import AgentError
+
+        raise AgentError(
+            "unknown", f"No background agent found with task_id: {task_id}"
+        )
+
+    msg = Message(
+        type="forward",
+        sender="user",
+        receiver=bg_loop.agent.name,
+        content=message,
+        call_id=uuid.uuid4().hex,
+    )
+
+    # Need to run the async inject_message
+    asyncio.run(bg_loop.inject_message(msg))
+
+    return f"Message sent to {bg_loop.agent.name} (task_id: {task_id})"
+
+
+def get_background_agent_status(task_id: str) -> str:
+    """Get status and messages from a background agent.
+
+    Args:
+        task_id: The task ID of the background agent
+
+    Returns:
+        A formatted string with task_id, agent name, status, result (if any),
+        error (if any), and all messages collected so far
+
+    Raises:
+        AgentError: If no background agent with the given task_id exists
+
+    Example:
+        status = get_background_agent_status("bg_abc123")
+        print(status)
+        # Task ID: bg_abc123
+        # Agent: writer
+        # Status: running
+        # Messages (3):
+        #   [forward] user -> writer: Work on report...
+    """
+    from agentouto.loop_manager import AgentLoopRegistry
+
+    registry = AgentLoopRegistry.get_instance()
+    bg_loop = registry.get_loop(task_id)
+
+    if bg_loop is None:
+        from agentouto.exceptions import AgentError
+
+        raise AgentError(
+            "unknown", f"No background agent found with task_id: {task_id}"
+        )
+
+    status = bg_loop.get_status()
+    messages = bg_loop.get_messages(clear=False)
+
+    result_parts = [
+        f"Task ID: {task_id}",
+        f"Agent: {bg_loop.agent.name}",
+        f"Status: {status}",
+    ]
+
+    if bg_loop.result is not None:
+        result_parts.append(f"Result: {bg_loop.result}")
+
+    if bg_loop.error is not None:
+        result_parts.append(f"Error: {bg_loop.error}")
+
+    if messages:
+        result_parts.append(f"Messages ({len(messages)}):")
+        for msg in messages:
+            result_parts.append(
+                f"  [{msg.type}] {msg.sender} -> {msg.receiver}: {msg.content[:100]}"
+            )
+
+    return "\n".join(result_parts)

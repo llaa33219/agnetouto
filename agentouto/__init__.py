@@ -21,7 +21,13 @@ BackgroundAgentLoop = _loop_manager.BackgroundAgentLoop  # pyright: ignore[repor
 BackgroundResult = _loop_manager.BackgroundResult  # pyright: ignore[reportAny]
 MessageQueue = _loop_manager.MessageQueue  # pyright: ignore[reportAny]
 from agentouto.provider import Provider
-from agentouto.runtime import RunResult, async_run, run
+from agentouto.runtime import (
+    RunResult,
+    async_run,
+    run,
+    send_message_to_background_agent,
+    get_background_agent_status,
+)
 from agentouto.streaming import StreamEvent, async_run_stream
 from agentouto.tool import Tool, ToolResult
 from agentouto.tracing import Span, Trace
@@ -39,12 +45,14 @@ __all__ = [
     "ClaudeOAuth",
     "clear_cache",
     "EventLog",
+    "get_background_agent_status",
     "GoogleOAuth",
     "Message",
     "MessageQueue",
     "OpenAIOAuth",
     "Provider",
     "RunResult",
+    "send_message_to_background_agent",
     "Span",
     "StreamEvent",
     "TokenData",

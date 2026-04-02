@@ -282,7 +282,7 @@ class Runtime:
             history_arg = tc.arguments.get("history")
             background = tc.arguments.get("background", False)
 
-            history: list[Message] | None
+            history: list[Message] | None = None
 
             if history_arg and isinstance(history_arg, list):
                 history = []

@@ -204,17 +204,17 @@ def _build_input(context: Context) -> list[dict[str, Any]]:
             if msg.attachments:
                 attachment_parts = _build_attachment_parts(msg.attachments)
                 if attachment_parts:
-                    content_parts: list[dict[str, Any]] = [
+                    tool_attachment_content: list[dict[str, Any]] = [
                         {
                             "type": "input_text",
                             "text": f"[Tool result attachments from {msg.tool_name or 'tool'}]",
                         },
                     ]
-                    content_parts.extend(attachment_parts)
+                    tool_attachment_content.extend(attachment_parts)
                     items.append(
                         {
                             "role": "user",
-                            "content": content_parts,
+                            "content": tool_attachment_content,
                         }
                     )
 

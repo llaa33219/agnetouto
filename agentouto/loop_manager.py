@@ -120,6 +120,9 @@ class RegisteredAgentLoop:
         self.status: LoopStatus = "running"
         self.messages: list[Message] = []
         self.message_queue: MessageQueue = MessageQueue()
+        self.result: str | None = None
+        self.error: str | None = None
+        self._event_queue: asyncio.Queue | None = None
 
     async def inject_message(self, message: Message) -> None:
         if self.status not in {"pending", "running"}:
@@ -138,6 +141,9 @@ class RegisteredAgentLoop:
         if clear:
             self.messages.clear()
         return collected
+
+    def set_event_queue(self, queue: asyncio.Queue) -> None:  # type: ignore[type-arg]
+        self._event_queue = queue
 
 
 @dataclass

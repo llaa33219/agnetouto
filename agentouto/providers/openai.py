@@ -173,7 +173,9 @@ def _build_attachment_parts(attachments: list[Attachment]) -> list[dict[str, Any
                 parts.append(
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:{att.mime_type};base64,{att.data}"},
+                        "image_url": {
+                            "url": f"data:{att.mime_type};base64,{att.data}",
+                        },
                     }
                 )
         elif att.mime_type.startswith("audio/"):

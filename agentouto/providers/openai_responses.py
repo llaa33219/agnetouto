@@ -194,29 +194,18 @@ def _build_input(context: Context) -> list[dict[str, Any]]:
                         }
                     )
         elif msg.role == "tool":
+            output_parts: list[dict[str, Any]] = []
+            if msg.content:
+                output_parts.append({"type": "input_text", "text": msg.content})
+            if msg.attachments:
+                output_parts.extend(_build_attachment_parts(msg.attachments))
             items.append(
                 {
                     "type": "function_call_output",
                     "call_id": msg.tool_call_id,
-                    "output": msg.content or "",
+                    "output": output_parts if output_parts else msg.content or "",
                 }
             )
-            if msg.attachments:
-                attachment_parts = _build_attachment_parts(msg.attachments)
-                if attachment_parts:
-                    tool_attachment_content: list[dict[str, Any]] = [
-                        {
-                            "type": "input_text",
-                            "text": f"[Tool result attachments from {msg.tool_name or 'tool'}]",
-                        },
-                    ]
-                    tool_attachment_content.extend(attachment_parts)
-                    items.append(
-                        {
-                            "role": "user",
-                            "content": tool_attachment_content,
-                        }
-                    )
 
     return items
 

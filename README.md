@@ -437,6 +437,54 @@ call_agent(
 
 History is prepended to the agent's context before the new forward message, allowing the agent to have continuity with previous conversations.
 
+### Extra Instructions at Runtime
+
+You can inject additional instructions into the system prompt at runtime, without modifying agent declarations. This is useful for shared context that changes per execution — like a SOUL.md file defining current project tone.
+
+#### Injecting to Entry Agent Only
+
+```python
+# Load shared context that only the entry agent receives
+with open("SOUL.md", "r") as f:
+    soul_content = f.read()
+
+result = run(
+    entry=writer,
+    message="Write an article about AI.",
+    agents=[writer, researcher],
+    tools=[search_web],
+    providers=[openai],
+    extra_instructions=soul_content,
+    extra_instructions_scope="entry",  # default
+)
+```
+
+#### Injecting to All Agents
+
+```python
+# Load project rules that ALL agents must follow
+with open("SOUL.md", "r") as f:
+    soul_content = f.read()
+
+result = run(
+    entry=writer,
+    message="Write an article about AI.",
+    agents=[writer, researcher, reviewer],
+    tools=[search_web],
+    providers=[openai],
+    extra_instructions=soul_content,
+    extra_instructions_scope="all",  # propagates to call_agent calls
+)
+# writer, researcher, reviewer ALL get SOUL.md in their system prompts
+```
+
+The instructions are injected as an `ADDITIONAL INSTRUCTIONS:` section in the system prompt, after agent identity but before available agents list.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `extra_instructions` | `None` | Additional text injected into system prompt |
+| `extra_instructions_scope` | `"entry"` | `"entry"` → only first agent, `"all"` → all agents including sub-calls |
+
 ### Tracking Parallel Agent Calls
 
 Every agent call is automatically assigned a unique `call_id` (UUID), so even when the same agent name is called multiple times in parallel, each invocation is tracked separately.
@@ -635,7 +683,7 @@ result = await async_run(
 )
 ```
 
-You can also pass conversation history:
+You can also pass conversation history and extra instructions:
 
 ```python
 result = await async_run(
@@ -645,6 +693,7 @@ result = await async_run(
     tools=[],
     providers=[openai],
     history=previous_result.messages,  # Pass previous messages
+    extra_instructions="Use a professional tone.",  # Inject into system prompt
 )
 ```
 
@@ -668,7 +717,7 @@ async for event in async_run_stream(
     print(f"[{event.type}] call_id={event.call_id[:8]} parent={event.parent_call_id}")
 ```
 
-Streaming also supports history:
+Streaming also supports history and extra instructions:
 
 ```python
 async for event in async_run_stream(
@@ -678,6 +727,7 @@ async for event in async_run_stream(
     tools=[],
     providers=[openai],
     history=previous_result.messages,
+    extra_instructions="Focus on technical details.",  # Inject into system prompt
 ):
     ...
 ```

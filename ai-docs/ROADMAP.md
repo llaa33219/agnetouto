@@ -8,9 +8,9 @@
 
 ## 1. 현재 상태
 
-**버전:** 0.21.0 (공개)
+**버전:** 0.23.0 (공개)
 
-**최종 업데이트:** 런타임 extra_instructions 주입 — `run()`, `async_run()`, `run_background()` 등에서 에이전트 스폰/실행 시 시스템 프롬프트에 추가 지시 주입 기능
+**최종 업데이트:** 시작 에이전트 (starting_agents) — 병렬 실행 + 에이전트 가시성 스코핑 (run_agents) + 태그 출력 포맷
 
 ---
 
@@ -230,6 +230,22 @@
 - [x] 200개 테스트 통과 (14개 신규 테스트)
 - [x] ai-docs 업데이트 (ARCHITECTURE, ROADMAP)
 
+### Phase 20: 시작 에이전트 + 에이전트 참여 풀 + 태그 출력 포맷 ✅
+
+- [x] `starting_agents` 파라미터 — 동등한 에이전트들이 병렬로 시작 (순서 무관)
+- [x] `entry` 파라미터 완전 제거
+- [x] `run_agents` 파라미터 — 참여자 풀 (선택적, 기본값은 `starting_agents`)
+- [x] `starting_agents`에 있지만 `run_agents`에 없는 에이전트에 대해 경고 발행
+- [x] `Router`에 `_run_agents` 필드 추가 — 참여자 풀 기반 가시성/실행 제어
+- [x] `build_system_prompt` — `run_agents` 기반 에이전트 필터링
+- [x] `Runtime.execute` — `starting_agents` 병렬 실행 (asyncio.gather)
+- [x] `run()`, `async_run()`, `run_background()`, `run_background_sync()`에 `starting_agents`, `run_agents` 파라미터 추가
+- [x] 병렬 실행 결과 XML 태그 포맷: `[agent_name]content[/agent_name]`
+- [x] `call_agent` 반환값에도 동일 포맷 적용
+- [x] README 업데이트 (Starting Agents 섹션, Parallel Output Format 섹션, Development Status)
+- [x] ai-docs/AGENT_LIST_ISOLATION.md 완전 재작성
+- [x] ai-docs/ROADMAP.md 업데이트
+
 ---
 
 ## 3. 미구현 기능
@@ -253,10 +269,25 @@
 | 스트리밍은 Google만 fallback | 낮음 | Google은 fallback (non-streaming 후 단일 이벤트). OpenAI, Anthropic은 네이티브 스트리밍 |
 | 멀티모달 프로바이더별 지원 범위 | 낮음 | OpenAI: image/audio, Anthropic: image/PDF, Google: 모든 타입. 미지원 타입은 조용히 무시 |
 | Anthropic max_tokens probe 레이스 컨디션 | 낮음 | 동일 모델 동시 호출 시 여러 번 probe 가능. 첫 성공 후 캐시 |
+| async_run_stream 다중 starting_agents 미지원 | 중간 | `async_run_stream`은 `starting_agents[0]`만 실행. `run()`/`async_run()`과 달리 다중 병렬 에이전트 미지원. 문서에서는 `starting_agents` 파라미터를 선언하지만 실제 동작은 단일 에이전트만 처리 |
 
 ---
 
 ## 5. 변경 이력
+
+### 0.23.0 (시작 에이전트 + 에이전트 가시성 스코핑 + 태그 출력 포맷)
+
+- Phase 20 완료: 시작 에이전트, 에이전트 가시성 스코핑, 태그 출력 포맷
+- `starting_agents` 파라미터 — 동등한 에이전트들이 병렬로 시작 (순서 무관, entry 개념 없음)
+- `run_agents` 파라미터 — 에이전트 풀 선언 + 가시성 스코프 (agents 대체)
+- `agents` 파라미터 deprecated — 하위 호환 유지, `run_agents` 우선
+- `Router._run_agents` 필드 + `build_system_prompt` 필터링
+- `Runtime.execute` — `starting_agents` 병렬 실행 (asyncio.gather)
+- `run()`, `async_run()`, `run_background()`, `run_background_sync()`에 `starting_agents`, `run_agents` 추가
+- 병렬 실행 결과 XML 태그 포맷: `[agent_name]content[/agent_name]`
+- `call_agent` 반환값에도 동일 포맷 적용
+- README大幅更新 (Starting Agents, Parallel Output Format 섹션新增)
+- ai-docs/ROADMAP.md 업데이트
 
 ### 0.21.0 (런타임 extra_instructions 주입)
 

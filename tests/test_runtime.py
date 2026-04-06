@@ -138,9 +138,8 @@ class TestSingleAgentTextResponse:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Say hello",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -159,9 +158,8 @@ class TestSingleAgentFinish:
         mock = MockBackend([_finish("Final answer")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Give me the answer",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -184,9 +182,8 @@ class TestSingleAgentToolCall:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Search for AI trends",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -212,9 +209,9 @@ class TestMultiAgent:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
+                run_agents=[agent_a, agent_b],
                 message="Do something complex",
-                agents=[agent_a, agent_b],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -233,9 +230,8 @@ class TestDebugMode:
         mock = MockBackend([_finish("debug result")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Test debug",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
                 debug=True,
@@ -261,9 +257,8 @@ class TestDebugMode:
         mock = MockBackend([_finish("result")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Test",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
                 debug=True,
@@ -284,9 +279,8 @@ class TestDebugMode:
         mock = MockBackend([_finish("traced")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Trace me",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
                 debug=True,
@@ -305,9 +299,8 @@ class TestDebugMode:
         mock = MockBackend([_finish("traced")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Trace me",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
                 debug=True,
@@ -325,9 +318,8 @@ class TestDebugMode:
         mock = MockBackend([_finish("no debug")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="No debug",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -352,9 +344,9 @@ class TestDebugMultiAgent:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
+                run_agents=[agent_a, agent_b],
                 message="Start",
-                agents=[agent_a, agent_b],
                 tools=[search_tool],
                 providers=[provider],
                 debug=True,
@@ -387,9 +379,8 @@ class TestParallelToolCalls:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Do two things",
-                agents=[agent_a],
                 tools=[search_tool, upper_tool],
                 providers=[provider],
             )
@@ -409,9 +400,8 @@ class TestAttachmentsPassthrough:
         att = Attachment(mime_type="image/png", data="base64data")
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Analyze this image",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
                 attachments=[att],
@@ -445,9 +435,8 @@ class TestAttachmentsPassthrough:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Fetch and analyze the image",
-                agents=[agent_a],
                 tools=[fetch_image],
                 providers=[provider],
             )
@@ -464,9 +453,8 @@ class TestAttachmentsPassthrough:
         mock = MockBackend([_finish("result")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Hello",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -494,9 +482,8 @@ class TestFinishNudge:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Hello",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -535,9 +522,8 @@ class TestFinishNudge:
         mock = CapturingBackend()
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Hello",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -570,9 +556,8 @@ class TestFinishNudgeStreaming:
         with patch("agentouto.router.get_backend", return_value=mock):
             events: list[StreamEvent] = []
             async for event in async_run_stream(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Hello",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             ):
@@ -594,9 +579,8 @@ class TestMessagesAlwaysPopulated:
         mock = MockBackend([_finish("result")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Hello",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -623,9 +607,8 @@ class TestToolCallErrorHandling:
         )
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Use nonexistent tool",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -662,9 +645,9 @@ class TestToolCallErrorHandling:
         mock = CapturingBackend()
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
+                run_agents=[agent_a, agent_b],
                 message="Call agent_b as tool",
-                agents=[agent_a, agent_b],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -703,9 +686,8 @@ class TestToolCallErrorHandling:
         mock = CapturingBackend()
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Call search as agent",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -743,9 +725,8 @@ class TestToolCallErrorHandling:
         mock = CapturingBackend()
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Call unknown agent",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -784,9 +765,8 @@ class TestToolCallErrorHandling:
         mock = CapturingBackend()
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Use nonexistent tool",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -817,9 +797,8 @@ class TestStreamingErrorHandling:
         with patch("agentouto.router.get_backend", return_value=mock):
             events: list[StreamEvent] = []
             async for event in async_run_stream(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Use nonexistent",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             ):
@@ -847,9 +826,8 @@ class TestStreamingErrorHandling:
         with patch("agentouto.router.get_backend", return_value=mock):
             events: list[StreamEvent] = []
             async for event in async_run_stream(
-                entry=agent_a,
+                starting_agents=[agent_a, agent_b],
                 message="Call agent_b as tool",
-                agents=[agent_a, agent_b],
                 tools=[search_tool],
                 providers=[provider],
             ):
@@ -876,9 +854,8 @@ class TestStreamingErrorHandling:
         with patch("agentouto.router.get_backend", return_value=mock):
             events: list[StreamEvent] = []
             async for event in async_run_stream(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Call search as agent",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             ):
@@ -905,9 +882,8 @@ class TestStreamingErrorHandling:
         with patch("agentouto.router.get_backend", return_value=mock):
             events: list[StreamEvent] = []
             async for event in async_run_stream(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="Call unknown agent",
-                agents=[agent_a],
                 tools=[search_tool],
                 providers=[provider],
             ):

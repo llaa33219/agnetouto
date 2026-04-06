@@ -267,7 +267,7 @@ Use call_agent to delegate work to other agents.
 
 ## 8. 사용자 = LLM 없는 에이전트
 
-사용자가 `run(entry=researcher, message="...", attachments=[...])` 을 호출하면:
+사용자가 `run(message="...", starting_agents=[researcher], attachments=[...])` 을 호출하면:
 
 1. 내부적으로 `_run_agent_loop(researcher, "...", attachments=[...])` 호출
 2. 이는 에이전트가 `call_agent(agent_name="researcher", message="...")` 하는 것과 **완전히 동일한 코드 경로**
@@ -305,9 +305,8 @@ from agentouto import run_background
 
 # 공개 API로 백그라운드 스폰
 task_id = run_background(
-    entry=writer,
     message="Write a report on AI trends.",
-    agents=[writer, researcher],
+    starting_agents=[writer, researcher],
     tools=[search_web],
     providers=[openai],
 )
@@ -463,7 +462,7 @@ Agent A의 LLM 응답:
 #### 1. Message 목록에서 확인 (항상 가능)
 
 ```python
-result = run(entry=a, ...)
+result = run(message="...", starting_agents=[a], ...)
 
 for msg in result.messages:
     if msg.receiver == "researcher":
@@ -473,7 +472,7 @@ for msg in result.messages:
 #### 2. EventLog로 필터링 (debug=True 필요)
 
 ```python
-result = run(entry=a, ..., debug=True)
+result = run(message="...", starting_agents=[a], ..., debug=True)
 
 # agent_name으로 필터 (같은 이름의 모든 호출)
 events = result.event_log.filter(agent_name="researcher")
@@ -488,7 +487,7 @@ returns = result.event_log.filter(event_type="agent_return")
 #### 3. Trace로 트리 시각화 (debug=True 필요)
 
 ```python
-result = run(entry=a, ..., debug=True)
+result = run(message="...", starting_agents=[a], ..., debug=True)
 print(result.trace.print_tree())
 ```
 

@@ -18,11 +18,16 @@ class Router:
         agents: list[Agent],
         tools: list[Tool],
         providers: list[Provider],
+        *,
+        run_agents: list[Agent] | None = None,
     ) -> None:
         self._agents: dict[str, Agent] = {a.name: a for a in agents}
         self._tools: dict[str, Tool] = {t.name: t for t in tools}
         self._providers: dict[str, Provider] = {p.name: p for p in providers}
         self._backends: dict[str, ProviderBackend] = {}
+        self._run_agents: dict[str, Agent] | None = (
+            {a.name: a for a in run_agents} if run_agents is not None else None
+        )
 
     @property
     def agent_names(self) -> list[str]:
@@ -215,7 +220,10 @@ class Router:
         caller: str | None = None,
         extra_instructions: str | None = None,
     ) -> str:
-        other_agents = [a for a in self._agents.values() if a.name != agent.name]
+        visible_agents = (
+            self._run_agents if self._run_agents is not None else self._agents
+        )
+        other_agents = [a for a in visible_agents.values() if a.name != agent.name]
 
         lines = [f'You are "{agent.name}". {agent.instructions}']
 

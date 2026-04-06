@@ -363,18 +363,16 @@ bg_loop.get_messages(clear=False)      # Get all messages
 ```python
 # Spawn a background agent (async)
 task_id = await run_background(
-    entry=agent,
     message="...",
-    agents=[...],
+    starting_agents=[...],
     tools=[...],
     providers=[...],
 )
 
 # Spawn a background agent (sync)
 task_id = run_background_sync(
-    entry=agent,
     message="...",
-    agents=[...],
+    starting_agents=[...],
     tools=[...],
     providers=[...],
 )
@@ -449,6 +447,8 @@ class Runtime:
 **`run()` / `async_run()`:**
 - Router 생성 → Runtime 생성 → execute 호출 → RunResult 반환
 - `run()`은 `asyncio.run(async_run(...))` 래퍼
+- `starting_agents` 파라미터 — 실행할 에이전트 리스트 (`starting_agents[0]`이 entry, 나머지가 병렬 시작)
+- `run_agents` 파라미터 — 가시성 스코프 (선택적, 기본값은 `starting_agents`)
 - `attachments` 파라미터는 keyword-only (`*, attachments: list[Attachment] | None = None`)
 - `history` 파라미터는 keyword-only (`*, history: list[Message] | None = None`) — 이전 대화 이력을 전달
 - `debug` 파라미터는 keyword-only (`*, debug: bool = False`)
@@ -629,11 +629,11 @@ def get_backend(kind: str) -> ProviderBackend  # 팩토리 함수
 ### 실행 시작 → 결과 반환
 
 ```
-run(entry, message, agents, tools, providers)
+run(message, starting_agents, tools, providers, ...)
   │
-  ├── Router(agents, tools, providers)   ← 이름 기반 레지스트리 생성
+  ├── Router(starting_agents, tools, providers)
   ├── Runtime(router)
-  └── runtime.execute(entry, message)
+  └── runtime.execute(entry, starting_agents, ...)
         │
         └── _run_agent_loop(entry, message)
               │

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+import warnings
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
@@ -68,11 +69,54 @@ class Runtime:
 
     async def execute(
         self,
-        agent: Agent,
         forward_message: str,
         *,
         attachments: list[Attachment] | None = None,
         history: list[Message] | None = None,
+        starting_agents: list[Agent] | None = None,
+    ) -> RunResult:
+        if starting_agents is None or len(starting_agents) == 0:
+            raise ValueError("starting_agents must be provided")
+
+        if len(starting_agents) == 1:
+            return await self._execute_single(
+                starting_agents[0], forward_message, attachments, history
+            )
+
+        results: dict[str, str] = {}
+
+        async def execute_and_collect(
+            ag: Agent,
+        ) -> None:
+            result = await self._execute_single(
+                ag, forward_message, attachments, history
+            )
+            results[ag.name] = result.output
+
+        await asyncio.gather(
+            *[execute_and_collect(sa) for sa in starting_agents],
+        )
+        trace = Trace(self._event_log) if self._event_log else None
+        if self._debug and self._event_log is not None:
+            logger.debug("Event log:\n%s", self._event_log.format())
+            if trace:
+                logger.debug("Trace:\n%s", trace.print_tree())
+        output_parts = [
+            f"[{name}]{content}[/{name}]" for name, content in results.items()
+        ]
+        return RunResult(
+            output="\n\n".join(output_parts),
+            messages=self._messages,
+            trace=trace,
+            event_log=self._event_log,
+        )
+
+    async def _execute_single(
+        self,
+        agent: Agent,
+        forward_message: str,
+        attachments: list[Attachment] | None,
+        history: list[Message] | None,
     ) -> RunResult:
         call_id = uuid.uuid4().hex
 
@@ -336,8 +380,8 @@ class Runtime:
 
             if background:
                 task_id = await self._spawn_background_agent(
-                    target,
                     message,
+                    [target],
                     sub_call_id,
                     caller_call_id,
                     caller_name,
@@ -378,7 +422,7 @@ class Runtime:
                     "result": _truncate(result),
                 },
             )
-            return result
+            return f"[{agent_name}]{result}[/{agent_name}]"
 
         if tc.name == "spawn_background_agent":
             agent_name = tc.arguments.get("agent_name", "")
@@ -402,8 +446,8 @@ class Runtime:
 
             target = self._resolve_agent_target(agent_name)
             task_id = await self._spawn_background_agent(
-                target,
                 message,
+                [target],
                 uuid.uuid4().hex,
                 caller_call_id,
                 caller_name,
@@ -522,8 +566,8 @@ class Runtime:
 
     async def _spawn_background_agent(
         self,
-        agent: Agent,
         forward_message: str,
+        starting_agents: list[Agent],
         call_id: str,
         parent_call_id: str | None,
         caller: str | None = None,
@@ -532,30 +576,34 @@ class Runtime:
     ) -> str:
         task_id = f"bg_{uuid.uuid4().hex[:12]}"
 
-        async def executor(agnt: Agent, msg: str, hist: list[Message] | None) -> str:
+        async def executor(
+            agnt: Agent, msg: str, hist: list[Message] | None, cid: str
+        ) -> str:
             return await self._run_agent_loop(
                 agnt,
                 msg,
-                call_id,
+                cid,
                 parent_call_id,
                 caller,
                 history=hist,
-                loop_id=task_id,
+                loop_id=cid,
                 extra_instructions=extra_instructions,
             )
 
-        bg_loop = BackgroundAgentLoop(
-            agent=agent,
-            initial_message=forward_message,
-            history=history,
-            executor=executor,
-            task_id=task_id,
-        )
-
-        registry = AgentLoopRegistry.get_instance()
-        registry.register(task_id, bg_loop)
-
-        bg_loop.start()
+        for i, agnt in enumerate(starting_agents):
+            tid = f"{task_id}_{i}" if i > 0 else task_id
+            bg_loop = BackgroundAgentLoop(
+                agent=agnt,
+                initial_message=forward_message,
+                history=history,
+                executor=lambda a=agnt, m=forward_message, h=history, c=tid: executor(  # type: ignore[misc]
+                    a, m, h, c
+                ),
+                task_id=tid,
+            )
+            registry = AgentLoopRegistry.get_instance()
+            registry.register(tid, bg_loop)
+            bg_loop.start()
 
         return task_id
 
@@ -806,7 +854,9 @@ class Runtime:
                         data={"result": _truncate(sub_result)},
                     )
                 )
-                context.add_tool_result(tc.id, tc.name, sub_result)
+                context.add_tool_result(
+                    tc.id, tc.name, f"[{target_name}]{sub_result}[/{target_name}]"
+                )
             except Exception as exc:
                 context.add_tool_result(tc.id, tc.name, f"Error: {exc}")
                 events.append(
@@ -927,19 +977,42 @@ def _truncate(text: str, max_len: int = 200) -> str:
 
 
 async def async_run(
-    entry: Agent,
     message: str,
-    agents: list[Agent],
-    tools: list[Tool],
-    providers: list[Provider],
+    starting_agents: list[Agent] | None = None,
+    tools: list[Tool] | None = None,
+    providers: list[Provider] | None = None,
     *,
     attachments: list[Attachment] | None = None,
     history: list[Message] | None = None,
     debug: bool = False,
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
+    run_agents: list[Agent] | None = None,
 ) -> RunResult:
-    router = Router(agents, tools, providers)
+    if starting_agents is None or len(starting_agents) == 0:
+        raise ValueError(
+            "starting_agents must be provided (list of agents to start in parallel)"
+        )
+
+    run_agents_list = run_agents if run_agents is not None else starting_agents
+
+    # Warning: agents in starting_agents but not in run_agents cannot participate
+    if run_agents is not None:
+        starting_names = {a.name for a in starting_agents}
+        run_names = {a.name for a in run_agents}
+        missing = starting_names - run_names
+        if missing:
+            warnings.warn(
+                f"Agents in starting_agents but not in run_agents: {missing}. "
+                f"These agents will execute but cannot call or perceive other agents. "
+                f"Consider adding them to run_agents or removing from starting_agents.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    router = Router(
+        run_agents_list, tools or [], providers or [], run_agents=run_agents_list
+    )
     runtime = Runtime(
         router,
         debug=debug,
@@ -947,28 +1020,30 @@ async def async_run(
         extra_instructions_scope=extra_instructions_scope,
     )
     return await runtime.execute(
-        entry, message, attachments=attachments, history=history
+        message,
+        starting_agents=starting_agents,
+        attachments=attachments,
+        history=history,
     )
 
 
 def run(
-    entry: Agent,
     message: str,
-    agents: list[Agent],
-    tools: list[Tool],
-    providers: list[Provider],
+    starting_agents: list[Agent],
+    tools: list[Tool] | None = None,
+    providers: list[Provider] | None = None,
     *,
     attachments: list[Attachment] | None = None,
     history: list[Message] | None = None,
     debug: bool = False,
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
+    run_agents: list[Agent] | None = None,
 ) -> RunResult:
     return asyncio.run(
         async_run(
-            entry,
             message,
-            agents,
+            starting_agents,
             tools,
             providers,
             attachments=attachments,
@@ -976,6 +1051,7 @@ def run(
             debug=debug,
             extra_instructions=extra_instructions,
             extra_instructions_scope=extra_instructions_scope,
+            run_agents=run_agents,
         )
     )
 
@@ -1092,26 +1168,47 @@ def get_background_agent_status(task_id: str) -> str:
 
 
 async def run_background(
-    entry: Agent,
     message: str,
-    agents: list[Agent],
-    tools: list[Tool],
-    providers: list[Provider],
+    starting_agents: list[Agent] | None = None,
+    tools: list[Tool] | None = None,
+    providers: list[Provider] | None = None,
     *,
     attachments: list[Attachment] | None = None,
     history: list[Message] | None = None,
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
+    run_agents: list[Agent] | None = None,
 ) -> str:
-    router = Router(agents, tools, providers)
+    if starting_agents is None or len(starting_agents) == 0:
+        raise ValueError(
+            "starting_agents must be provided (list of agents to start in parallel)"
+        )
+
+    run_agents_list = run_agents if run_agents is not None else starting_agents
+
+    if run_agents is not None:
+        starting_names = {a.name for a in starting_agents}
+        run_names = {a.name for a in run_agents}
+        missing = starting_names - run_names
+        if missing:
+            warnings.warn(
+                f"Agents in starting_agents but not in run_agents: {missing}. "
+                f"These agents will not be able to participate in this run.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    router = Router(
+        run_agents_list, tools or [], providers or [], run_agents=run_agents_list
+    )
     runtime = Runtime(
         router,
         extra_instructions=extra_instructions,
         extra_instructions_scope=extra_instructions_scope,
     )
     return await runtime._spawn_background_agent(
-        entry,
         message,
+        starting_agents,
         uuid.uuid4().hex,
         None,
         "user",
@@ -1121,28 +1218,28 @@ async def run_background(
 
 
 def run_background_sync(
-    entry: Agent,
     message: str,
-    agents: list[Agent],
-    tools: list[Tool],
-    providers: list[Provider],
+    starting_agents: list[Agent] | None = None,
+    tools: list[Tool] | None = None,
+    providers: list[Provider] | None = None,
     *,
     attachments: list[Attachment] | None = None,
     history: list[Message] | None = None,
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
+    run_agents: list[Agent] | None = None,
 ) -> str:
     return asyncio.run(
         run_background(
-            entry,
             message,
-            agents,
+            starting_agents,
             tools,
             providers,
             attachments=attachments,
             history=history,
             extra_instructions=extra_instructions,
             extra_instructions_scope=extra_instructions_scope,
+            run_agents=run_agents,
         )
     )
 

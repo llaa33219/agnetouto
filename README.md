@@ -85,9 +85,8 @@ reviewer = Agent(
 
 # Run — user is just an agent without an LLM
 result = run(
-    entry=researcher,
     message="Write an AI trends report.",
-    agents=[researcher, writer, reviewer],
+    starting_agents=[researcher, writer, reviewer],
     tools=[search_web],
     providers=[openai, anthropic, google],
 )
@@ -368,9 +367,8 @@ Pass attachments to `run()` or `async_run()`:
 from agentouto import run, Attachment
 
 result = run(
-    entry=vision_agent,
     message="Analyze this image.",
-    agents=[vision_agent],
+    starting_agents=[vision_agent],
     tools=[],
     providers=[openai],
     attachments=[
@@ -406,18 +404,16 @@ from agentouto import run, Agent, Provider
 
 # First conversation
 result1 = run(
-    entry=researcher,
     message="Research AI trends.",
-    agents=[researcher],
+    starting_agents=[researcher],
     tools=[],
     providers=[openai],
 )
 
 # Continue with history
 result2 = run(
-    entry=writer,
     message="Write about what you found.",
-    agents=[writer, researcher],
+    starting_agents=[writer, researcher],
     tools=[],
     providers=[openai],
     history=result1.messages,  # Pass previous messages
@@ -449,9 +445,8 @@ with open("SOUL.md", "r") as f:
     soul_content = f.read()
 
 result = run(
-    entry=writer,
     message="Write an article about AI.",
-    agents=[writer, researcher],
+    starting_agents=[writer, researcher],
     tools=[search_web],
     providers=[openai],
     extra_instructions=soul_content,
@@ -467,9 +462,8 @@ with open("SOUL.md", "r") as f:
     soul_content = f.read()
 
 result = run(
-    entry=writer,
     message="Write an article about AI.",
-    agents=[writer, researcher, reviewer],
+    starting_agents=[writer, researcher, reviewer],
     tools=[search_web],
     providers=[openai],
     extra_instructions=soul_content,
@@ -490,17 +484,14 @@ The instructions are injected as an `ADDITIONAL INSTRUCTIONS:` section in the sy
 Every agent call is automatically assigned a unique `call_id` (UUID), so even when the same agent name is called multiple times in parallel, each invocation is tracked separately.
 
 ```python
-result = run(
-    entry=researcher,
-    message="Research AI trends.",
-    agents=[researcher, writer, reviewer],
+task_id = run_background(
+    message="Research AI trends",
+    starting_agents=[researcher, writer, reviewer],
     tools=[search_web],
-    providers=[openai, anthropic],
+    providers=[openai],
 )
-
-# Track all messages - call_id is always available
-for msg in result.messages:
-    print(f"{msg.sender} → {msg.receiver} [call_id={msg.call_id[:8]}] {msg.type}")
+# Returns main task_id: "bg_abc123"
+# Additional agents spawned as: "bg_abc123_1", "bg_abc123_2", ...
 ```
 
 **Example output when the same agent is called in parallel:**
@@ -533,9 +524,8 @@ from agentouto import run_background
 
 # Spawn an agent in background — returns immediately with task_id
 task_id = run_background(
-    entry=researcher,
     message="Research AI trends",
-    agents=[researcher, writer],
+    starting_agents=[researcher, writer],
     tools=[search_web],
     providers=[openai],
 )
@@ -547,6 +537,20 @@ call_agent(
     message="Research the latest in AI.",
     background=True,
 )
+```
+
+`run_background()` also supports `starting_agents` like `run()`:
+
+```python
+task_id = run_background(
+    message="Research AI trends",
+    run_agents=[researcher, writer, reviewer],
+    tools=[search_web],
+    providers=[openai],
+    starting_agents=[writer, reviewer],
+)
+# Returns main task_id: "bg_abc123"
+# Additional agents spawned as: "bg_abc123_1", "bg_abc123_2", ...
 ```
 
 #### Sending Messages to Running Agents
@@ -614,9 +618,8 @@ from agentouto import run_background, send_message, get_agent_status
 
 # Spawn researcher in background
 task_id = run_background(
-    entry=researcher,
     message="Research AI trends",
-    agents=[researcher, writer],
+    starting_agents=[researcher],
     tools=[search_web],
     providers=[openai],
 )
@@ -632,6 +635,88 @@ print(get_agent_status("bg_res_001"))
 ```
 
 See [`ai-docs/MESSAGE_PROTOCOL.md`](./ai-docs/MESSAGE_PROTOCOL.md#11-백그라운드-실행--background-execution) for detailed protocol documentation.
+
+---
+
+### Starting Agents — Parallel Execution at Run Start
+
+All agents in `starting_agents` execute **simultaneously** in their own loops as equal peers:
+
+```python
+result = run(
+    message="Research and write about AI trends",
+    starting_agents=[researcher, writer, reviewer],  # all run in parallel
+    tools=[search_web],
+    providers=[openai, anthropic, google],
+)
+```
+
+Each can call other agents via `call_agent`, use tools, and communicate independently.
+
+#### Agent Participation with `run_agents`
+
+`run_agents` defines the **participant pool** — agents that can execute, call, and perceive each other. If `run_agents` is not specified, it defaults to `starting_agents`.
+
+**Warning:** Putting an agent in `starting_agents` but NOT in `run_agents` is **bad practice**. Such agents cannot participate in the run at all — they cannot execute, call other agents, or be perceived. A warning is issued in this case.
+
+```python
+# Good: all participants can see each other
+result = run(
+    message="Research and write about AI trends",
+    starting_agents=[researcher, writer, reviewer],
+    run_agents=[researcher, writer, reviewer],  # All participate
+    tools=[search_web],
+    providers=[openai, anthropic, google],
+)
+
+# Bad: reviewer in starting_agents but not in run_agents
+# This will issue a warning — reviewer cannot participate!
+result = run(
+    message="...",
+    starting_agents=[researcher, writer, reviewer],
+    run_agents=[researcher, writer],  # reviewer NOT in participants
+    ...
+)
+```
+
+This is useful for:
+- Restricting which agents can be called in a specific run
+- Creating isolated teams within a larger agent pool
+- Enforcing role boundaries
+
+Both parameters work with `run()`, `async_run()`, `run_background()`, and `run_background_sync()`.
+
+---
+
+### Parallel Output Format
+
+When multiple agents run in parallel (via `starting_agents` or `call_agent`), their results are returned with XML-style tags for clear attribution:
+
+```python
+# Single agent run — plain output
+result = run(message="...", starting_agents=[researcher])
+# result.output = "Research findings..."
+
+# Multiple parallel agents — tagged output
+result = run(
+    message="...",
+    starting_agents=[researcher, writer, reviewer],
+)
+# result.output =
+# [researcher]Research findings...[/researcher]
+# [writer]Written report...[/writer]
+# [reviewer]Review complete...[/reviewer]
+```
+
+The same format applies to `call_agent` results:
+
+```python
+# Within an agent, calling another agent returns tagged output
+call_agent(agent_name="writer", message="Write a summary")
+# Returns: "[writer]Summary text...[/writer]"
+```
+
+This ensures the user (treated as an agent without an LLM) can parse and understand which agent produced which output.
 
 ---
 
@@ -675,11 +760,10 @@ import asyncio
 from agentouto import async_run
 
 result = await async_run(
-    entry=researcher,
     message="Write an AI trends report.",
-    agents=[researcher, writer, reviewer],  # Each agent can use any model/provider
+    starting_agents=[researcher, writer, reviewer],
     tools=[search_web, write_file],
-    providers=[openai, anthropic, google],   # Mix providers freely
+    providers=[openai, anthropic, google],
 )
 ```
 
@@ -687,9 +771,8 @@ You can also pass conversation history and extra instructions:
 
 ```python
 result = await async_run(
-    entry=writer,
     message="Continue the report.",
-    agents=[writer, researcher],
+    starting_agents=[writer, researcher],
     tools=[],
     providers=[openai],
     history=previous_result.messages,  # Pass previous messages
@@ -703,9 +786,8 @@ result = await async_run(
 from agentouto import async_run_stream
 
 async for event in async_run_stream(
-    entry=researcher,
     message="Write an AI trends report.",
-    agents=[researcher, writer, reviewer],
+    starting_agents=[researcher, writer, reviewer],
     tools=[search_web],
     providers=[openai, anthropic, google],
 ):
@@ -721,9 +803,8 @@ Streaming also supports history and extra instructions:
 
 ```python
 async for event in async_run_stream(
-    entry=writer,
     message="Continue writing.",
-    agents=[writer, researcher],
+    starting_agents=[writer, researcher],
     tools=[],
     providers=[openai],
     history=previous_result.messages,
@@ -790,6 +871,7 @@ agentouto/
 | **17** | Background execution + inter-agent messaging | ✅ Done |
 | **18** | Background streaming + unified API (send_message, get_agent_status, run_background) | ✅ Done |
 | **19** | Runtime extra_instructions injection (extra_instructions + extra_instructions_scope parameters) | ✅ Done |
+| **20** | Starting agents (all parallel) + visibility scoping (run_agents) + tagged output format | ✅ Done |
 
 ---
 

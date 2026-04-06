@@ -138,9 +138,8 @@ class TestExtraInstructionsScopeEntry:
 
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="hello",
-                agents=[agent_a],
                 tools=[],
                 providers=[_make_provider()],
                 extra_instructions="Be polite.",
@@ -179,9 +178,9 @@ class TestExtraInstructionsScopeEntry:
 
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
+                run_agents=[agent_a, agent_b],
                 message="start",
-                agents=[agent_a, agent_b],
                 tools=[],
                 providers=[_make_provider()],
                 extra_instructions="Special instruction.",
@@ -230,9 +229,9 @@ class TestExtraInstructionsScopeAll:
 
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
+                run_agents=[agent_a, agent_b],
                 message="start",
-                agents=[agent_a, agent_b],
                 tools=[],
                 providers=[_make_provider()],
                 extra_instructions="Shared instruction.",
@@ -280,9 +279,8 @@ class TestExtraInstructionsScopeAll:
 
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="start",
-                agents=[agent_a, agent_b, agent_c],
                 tools=[],
                 providers=[_make_provider()],
                 extra_instructions="Universal rule.",
@@ -322,9 +320,8 @@ class TestExtraInstructionsNone:
 
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent_a,
+                starting_agents=[agent_a],
                 message="hello",
-                agents=[agent_a],
                 tools=[],
                 providers=[_make_provider()],
             )

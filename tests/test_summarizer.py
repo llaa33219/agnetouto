@@ -92,9 +92,17 @@ class TestFindSummarizationBoundary:
     def test_never_splits_at_tool_message(self) -> None:
         messages = [
             ContextMessage(role="user", content="a" * 200),
-            ContextMessage(role="assistant", content=None,
-                           tool_calls=[ToolCall(id="tc1", name="search", arguments={"q": "x"})]),
-            ContextMessage(role="tool", content="result " * 50, tool_call_id="tc1", tool_name="search"),
+            ContextMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[ToolCall(id="tc1", name="search", arguments={"q": "x"})],
+            ),
+            ContextMessage(
+                role="tool",
+                content="result " * 50,
+                tool_call_id="tc1",
+                tool_name="search",
+            ),
             ContextMessage(role="user", content="c" * 200),
             ContextMessage(role="assistant", content="d" * 200),
         ]
@@ -105,10 +113,17 @@ class TestFindSummarizationBoundary:
     def test_snaps_backward_past_tool_messages(self) -> None:
         messages = [
             ContextMessage(role="user", content="start"),
-            ContextMessage(role="assistant", content=None,
-                           tool_calls=[ToolCall(id="tc1", name="s", arguments={})]),
-            ContextMessage(role="tool", content="r1", tool_call_id="tc1", tool_name="s"),
-            ContextMessage(role="tool", content="r2", tool_call_id="tc2", tool_name="s"),
+            ContextMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[ToolCall(id="tc1", name="s", arguments={})],
+            ),
+            ContextMessage(
+                role="tool", content="r1", tool_call_id="tc1", tool_name="s"
+            ),
+            ContextMessage(
+                role="tool", content="r2", tool_call_id="tc2", tool_name="s"
+            ),
             ContextMessage(role="assistant", content="final" * 100),
         ]
         split = find_summarization_boundary(messages, 50)
@@ -118,8 +133,12 @@ class TestFindSummarizationBoundary:
     def test_returns_none_if_all_tool_messages(self) -> None:
         messages = [
             ContextMessage(role="user", content="x"),
-            ContextMessage(role="tool", content="r1", tool_call_id="tc1", tool_name="s"),
-            ContextMessage(role="tool", content="r2", tool_call_id="tc2", tool_name="s"),
+            ContextMessage(
+                role="tool", content="r1", tool_call_id="tc1", tool_name="s"
+            ),
+            ContextMessage(
+                role="tool", content="r2", tool_call_id="tc2", tool_name="s"
+            ),
         ]
         split = find_summarization_boundary(messages, 100)
         if split is not None:
@@ -152,7 +171,9 @@ class TestBuildSummaryPrompt:
 
     def test_assistant_tool_calls(self) -> None:
         tc = ToolCall(id="tc1", name="search", arguments={"query": "AI"})
-        messages = [ContextMessage(role="assistant", tool_calls=[tc], content="Searching...")]
+        messages = [
+            ContextMessage(role="assistant", tool_calls=[tc], content="Searching...")
+        ]
         result = build_summary_prompt(messages)
         assert "Called tools:" in result
         assert "search" in result
@@ -160,7 +181,12 @@ class TestBuildSummaryPrompt:
 
     def test_tool_result(self) -> None:
         messages = [
-            ContextMessage(role="tool", content="Found 10 results", tool_call_id="tc1", tool_name="search"),
+            ContextMessage(
+                role="tool",
+                content="Found 10 results",
+                tool_call_id="tc1",
+                tool_name="search",
+            ),
         ]
         result = build_summary_prompt(messages)
         assert "Tool result (search):" in result
@@ -171,7 +197,12 @@ class TestBuildSummaryPrompt:
         messages = [
             ContextMessage(role="user", content="Search for AI"),
             ContextMessage(role="assistant", tool_calls=[tc]),
-            ContextMessage(role="tool", content="Results: ...", tool_call_id="tc1", tool_name="search"),
+            ContextMessage(
+                role="tool",
+                content="Results: ...",
+                tool_call_id="tc1",
+                tool_name="search",
+            ),
             ContextMessage(role="assistant", content="Based on the search..."),
         ]
         result = build_summary_prompt(messages)
@@ -260,7 +291,9 @@ class MockBackend(ProviderBackend):
 def _finish(message: str) -> LLMResponse:
     return LLMResponse(
         content=None,
-        tool_calls=[ToolCall(id="fin_1", name="finish", arguments={"message": message})],
+        tool_calls=[
+            ToolCall(id="fin_1", name="finish", arguments={"message": message})
+        ],
     )
 
 
@@ -282,23 +315,28 @@ def search_tool() -> Tool:
     def search(query: str) -> str:
         """Search the web."""
         return f"Results for: {query}" + " data" * 100
+
     return search
 
 
 class TestRuntimeSummarization:
     @pytest.mark.asyncio
     async def test_no_summarization_without_context_window(
-        self, provider: Provider, search_tool: Tool,
+        self,
+        provider: Provider,
+        search_tool: Tool,
     ) -> None:
         agent = Agent(
-            name="agent_a", instructions="Agent A.", model="gpt-4o", provider="openai",
+            name="agent_a",
+            instructions="Agent A.",
+            model="gpt-4o",
+            provider="openai",
         )
         mock = MockBackend([_finish("done")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent,
+                starting_agents=[agent],
                 message="Hello",
-                agents=[agent],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -307,10 +345,15 @@ class TestRuntimeSummarization:
 
     @pytest.mark.asyncio
     async def test_summarization_triggers_on_large_context(
-        self, provider: Provider, search_tool: Tool,
+        self,
+        provider: Provider,
+        search_tool: Tool,
     ) -> None:
         agent = Agent(
-            name="agent_a", instructions="A.", model="gpt-4o", provider="openai",
+            name="agent_a",
+            instructions="A.",
+            model="gpt-4o",
+            provider="openai",
             context_window=200,
         )
 
@@ -343,9 +386,8 @@ class TestRuntimeSummarization:
         mock = CapturingBackend()
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent,
+                starting_agents=[agent],
                 message="Do something long " * 20,
-                agents=[agent],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -360,10 +402,15 @@ class TestRuntimeSummarization:
 
     @pytest.mark.asyncio
     async def test_summarization_failure_does_not_crash(
-        self, provider: Provider, search_tool: Tool,
+        self,
+        provider: Provider,
+        search_tool: Tool,
     ) -> None:
         agent = Agent(
-            name="agent_a", instructions="A.", model="gpt-4o", provider="openai",
+            name="agent_a",
+            instructions="A.",
+            model="gpt-4o",
+            provider="openai",
             context_window=50,
         )
 
@@ -388,9 +435,8 @@ class TestRuntimeSummarization:
         mock = FailingSummaryBackend()
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent,
+                starting_agents=[agent],
                 message="Long message " * 50,
-                agents=[agent],
                 tools=[search_tool],
                 providers=[provider],
             )
@@ -398,18 +444,22 @@ class TestRuntimeSummarization:
 
     @pytest.mark.asyncio
     async def test_context_window_none_skips_summarization(
-        self, provider: Provider, search_tool: Tool,
+        self,
+        provider: Provider,
+        search_tool: Tool,
     ) -> None:
         agent = Agent(
-            name="agent_a", instructions="A.", model="gpt-4o", provider="openai",
+            name="agent_a",
+            instructions="A.",
+            model="gpt-4o",
+            provider="openai",
             context_window=None,
         )
         mock = MockBackend([_finish("done")])
         with patch("agentouto.router.get_backend", return_value=mock):
             result = await async_run(
-                entry=agent,
+                starting_agents=[agent],
                 message="Hello " * 1000,
-                agents=[agent],
                 tools=[search_tool],
                 providers=[provider],
             )

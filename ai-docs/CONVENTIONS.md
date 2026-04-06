@@ -332,11 +332,10 @@ def _call_agent(agent_name, message)                 # 에이전트 호출
 ```python
 # ✅ Good
 async def async_run(
-    entry: Agent,
     message: str,
-    agents: list[Agent],
-    tools: list[Tool],
-    providers: list[Provider],
+    starting_agents: list[Agent],
+    tools: list[Tool] | None = None,
+    providers: list[Provider] | None = None,
     *,
     debug: bool = False,
 ) -> RunResult:

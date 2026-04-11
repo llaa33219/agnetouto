@@ -348,6 +348,48 @@ def fetch_image(url: str) -> ToolResult:
 
 When a tool returns `ToolResult` with attachments, the LLM can visually analyze the images. Regular `str` returns remain fully supported.
 
+### Tool Override and Disable
+
+Built-in tools (`call_agent`, `spawn_background_agent`, `send_message`, `get_messages`, `finish`) can be overridden or disabled at the `run()` level.
+
+#### Disabling Tools
+
+Pass `disabled_tools` to exclude built-in tools from the tool schemas sent to the LLM:
+
+```python
+result = run(
+    message="Do research.",
+    starting_agents=[researcher],
+    tools=[search_web],
+    providers=[openai],
+    disabled_tools={"spawn_background_agent", "get_messages"},
+)
+# The LLM won't see spawn_background_agent or get_messages in its tool list.
+```
+
+#### Overriding Tools
+
+Provide a user tool with the same name as a built-in to replace it:
+
+```python
+@Tool
+def finish(message: str, confidence: float = 1.0) -> str:
+    """Return result with confidence score."""
+    return f"[{confidence}] {message}"
+
+result = run(
+    message="Analyze this data.",
+    starting_agents=[researcher],
+    tools=[finish],  # Replaces the built-in finish
+    providers=[openai],
+)
+# result.output will be "[0.85] Analysis complete"
+```
+
+Override takes precedence over disable — if a tool is both overridden and in `disabled_tools`, the override is used.
+
+**Note:** `finish` cannot be disabled (raises `ValueError`). Override it instead if you need custom finish behavior.
+
 ### Multimodal Attachments
 
 Agents can receive file attachments (images, audio, video, PDFs) via the `Attachment` dataclass:
@@ -636,6 +678,67 @@ print(get_agent_status("bg_res_001"))
 
 See [`ai-docs/MESSAGE_PROTOCOL.md`](./ai-docs/MESSAGE_PROTOCOL.md#11-백그라운드-실행--background-execution) for detailed protocol documentation.
 
+### Bidirectional Messages (on_message)
+
+Agents and users can exchange messages in real-time during `run()` — no background mode needed. The only difference from `run_background()` is that `run()` blocks until the agent finishes.
+
+#### Receiving and Sending Messages
+
+Pass an `on_message` callback that receives `(message, send)`:
+
+```python
+def on_message(msg, send):
+    print(f"[{msg.sender}] {msg.content}")
+    if msg.content == "Need your input":
+        send("Approved, proceed.")
+
+result = run(
+    message="Write a detailed report.",
+    starting_agents=[writer],
+    tools=[search_web],
+    providers=[openai],
+    on_message=on_message,
+)
+```
+
+- **Agent → User**: Agent calls `send_message(task_id="...", message="...")` → `on_message` fires with the message
+- **User → Agent**: Call `send("...")` inside the callback → message is queued and the agent receives it on its next iteration
+
+#### How It Works
+
+1. The user is registered as a loop in `AgentLoopRegistry`
+2. The agent's system prompt includes the caller's `task_id`
+3. The agent uses `send_message(task_id="...", message="update")` — the same tool used for background agents
+4. The callback fires synchronously, receiving `(msg, send)` — call `send()` to reply
+5. Messages sent via `send()` are queued and added to the agent's context before the next LLM call
+6. Intermediate messages also appear in `RunResult.messages`
+
+#### Streaming Integration
+
+`async_run_stream` also supports `on_message`, plus yields `"user_message"` StreamEvents:
+
+```python
+async for event in async_run_stream(
+    starting_agents=[writer],
+    message="Write report",
+    on_message=lambda msg, send: send("keep going") if "stuck" in msg.content else None,
+):
+    if event.type == "user_message":
+        print(f"Progress: {event.data['message']}")
+    elif event.type == "finish":
+        print(f"Done: {event.data['output']}")
+```
+
+#### Agent-to-Agent Messages
+
+`caller_loop_id` is included in all agent system prompts, so sub-agents can send intermediate messages to their caller (not just the user):
+
+```
+[User] → [Agent A] → [Agent B]
+                       ├── send_message(task_id="A's loop", message="50%")
+                       └── finish("done")
+```
+
 ---
 
 ### Starting Agents — Parallel Execution at Run Start
@@ -872,6 +975,8 @@ agentouto/
 | **18** | Background streaming + unified API (send_message, get_agent_status, run_background) | ✅ Done |
 | **19** | Runtime extra_instructions injection (extra_instructions + extra_instructions_scope parameters) | ✅ Done |
 | **20** | Starting agents (all parallel) + visibility scoping (run_agents) + tagged output format | ✅ Done |
+| **21** | Built-in tool override/disable (`disabled_tools` parameter) | ✅ Done |
+| **22** | Intermediate messages (`on_message` callback, `user_message` StreamEvent) | ✅ Done |
 
 ---
 

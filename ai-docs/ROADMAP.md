@@ -8,9 +8,9 @@
 
 ## 1. 현재 상태
 
-**버전:** 0.23.1 (공개)
+**버전:** 0.24.0 (공개)
 
-**최종 업데이트:** 시작 에이전트 (starting_agents) — 병렬 실행 + 에이전트 가시성 스코핑 (run_agents) + 태그 출력 포맷
+**최종 업데이트:** 기본 도구 오버라이드/비활성화 + 에이전트 중간 메시지
 
 ---
 
@@ -246,6 +246,36 @@
 - [x] ai-docs/AGENT_LIST_ISOLATION.md 완전 재작성
 - [x] ai-docs/ROADMAP.md 업데이트
 
+### Phase 21: 기본 도구 오버라이드/비활성화 ✅
+
+- [x] `_constants.py`: `BUILTIN_TOOL_NAMES` frozenset 추가
+- [x] `Router.__init__`: `disabled_tools` 파라미터 + 사용자 도구를 일반 도구와 오버라이드로 분리
+- [x] `Router.build_tool_schemas`: `_builtin_tool_schemas()` 헬퍼로 분리, disable/override 반영
+- [x] `Router._builtin_overrides`: 이름 매칭으로 기본 도구 교체 감지
+- [x] `Runtime._execute_tool_call`: 오버라이드 우선 실행 → 비활성화 체크 → 기본 분기
+- [x] `Runtime._run_agent_loop`: finish 오버라이드 지원
+- [x] 스트리밍 경로에도 오버라이드/비활성화 분기 적용
+- [x] `run()`, `async_run()`, `run_background()`, `run_background_sync()`, `async_run_stream()`에 `disabled_tools` 파라미터 추가
+- [x] `finish` 비활성화 시 `ValueError` (오버라이드는 가능)
+- [x] 오버라이드가 비활성화보다 우선
+- [x] 6개 신규 테스트, 214개 전체 통과
+
+### Phase 22: 에이전트 중간 메시지 (on_message) ✅
+
+- [x] `loop_manager.py`: `RegisteredAgentLoop`에 `caller_loop_id`, `on_message` 콜백 추가
+- [x] `RegisteredAgentLoop.inject_message`: 메시지 주입 시 `on_message` 콜백 호출 (예외 안전)
+- [x] `Router.build_system_prompt`: `caller_loop_id` 파라미터 → INVOKED BY 섹션에 task_id 안내 포함
+- [x] `Runtime.__init__`: `on_message` 파라미터 추가
+- [x] `Runtime._execute_single`: 유저 루프를 `AgentLoopRegistry`에 등록/해제
+- [x] `Runtime._run_agent_loop`: `caller_loop_id` 파라미터 → `RegisteredAgentLoop` + `build_system_prompt`에 전달
+- [x] `Runtime._execute_tool_call`: `current_loop_id` → 서브 에이전트에 `caller_loop_id`로 전달
+- [x] `send_message` 처리에서 `self._messages` 추적 추가
+- [x] `run()`, `async_run()`, `async_run_stream()`에 `on_message` 파라미터 추가
+- [x] 스트리밍: `StreamEvent.type`에 `"user_message"` 추가
+- [x] `Runtime.execute_stream`: 유저 루프 등록 + `user_message` 이벤트 yield
+- [x] `__init__.py`: `BUILTIN_TOOL_NAMES` 공개 API 엑스포트
+- [x] 8개 신규 테스트, 214개 전체 통과
+
 ---
 
 ## 3. 미구현 기능
@@ -274,6 +304,35 @@
 ---
 
 ## 5. 변경 이력
+
+### 0.24.0 (Phase 21-22: 기본 도구 오버라이드/비활성화 + 에이전트 양방향 메시지)
+
+- Phase 21 완료: 기본 도구 오버라이드/비활성화
+  - `_constants.py`: `BUILTIN_TOOL_NAMES` frozenset 추가
+  - `Router.__init__`: `disabled_tools` 파라미터 + 사용자 도구 분리 (_tools / _builtin_overrides)
+  - `Router.build_tool_schemas`: `_builtin_tool_schemas()` 헬퍼, disable/override 반영
+  - `Runtime._execute_tool_call`: 오버라이드 우선 → 비활성화 체크 → 기본 분기
+  - `Runtime._run_agent_loop`: finish 오버라이드 지원
+  - 스트리밍 경로에도 오버라이드/비활성화 적용
+  - `run()`, `async_run()`, `run_background()`, `run_background_sync()`, `async_run_stream()`에 `disabled_tools` 파라미터
+  - `finish` 비활성화 불가 (`ValueError`), 오버라이드 가능
+  - 오버라이드 > 비활성화 우선순위
+- Phase 22 완료: 에이전트 중간 메시지 (양방향)
+  - `RegisteredAgentLoop`: `caller_loop_id`, `on_message` 콜백 추가
+  - `Router.build_system_prompt`: `caller_loop_id` → INVOKED BY에 task_id 안내
+  - `Runtime._execute_single`: 유저 루프를 AgentLoopRegistry에 등록/해제 + 유저→에이전트 큐 생성
+  - `Runtime._run_agent_loop`: `caller_loop_id` → RegisteredAgentLoop + build_system_prompt 전달
+  - `Runtime._execute_tool_call`: `current_loop_id` → 서브 에이전트에 caller_loop_id로 전달
+  - `send_message` 처리에서 `self._messages` 추적
+  - **`on_message` 시그니처 변경**: `(msg)` → `(msg, send)` — 유저가 `send()`로 에이전트에게 메시지 전송 가능
+  - `_run_agent_loop`: 매 반복마다 유저 큐 확인 → `context.add_user()`로 컨텍스트 주입
+  - `run()`, `async_run()`, `async_run_stream()`에 `on_message` 파라미터
+  - `StreamEvent.type`에 `"user_message"` 추가
+  - `execute_stream`: 유저 루프 등록 + user_message 이벤트 yield
+  - `__init__.py`: `BUILTIN_TOOL_NAMES` 공개 API
+  - **`run()`과 `run_background()`의 기능적 차이는 블로킹/백그라운드 뿐** — 양방향 메시지는 동일 지원
+- 테스트 200개 → 216개 (+16)
+- 철학 준수: 원칙 3 (run 레벨 도구 커스터마이즈), 원칙 4 (forward 타입 사용), 원칙 5 (같은 send_message 메커니즘)
 
 ### 0.23.0 (시작 에이전트 + 에이전트 가시성 스코핑 + 태그 출력 포맷)
 

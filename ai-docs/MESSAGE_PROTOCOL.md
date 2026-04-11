@@ -510,3 +510,69 @@ print(result.trace.print_tree())
 | Trace | `result.trace` | ❌ | ✅ |
 
 **핵심 규칙**: `agent_name`이 아니라 `call_id`가 추적의 실제 키다.
+
+---
+
+## 12. 양방향 메시지 — Bidirectional Messages
+
+`run()`과 `run_background()`의 기능적 차이는 블로킹/백그라운드 뿐이다. 양방향 메시지 교환은 모두 동일하게 지원된다.
+
+### on_message 콜백 시그니처
+
+`on_message(msg, send)` — 두 번째 인자로 `send` 함수를 받는다:
+
+```python
+def on_message(msg, send):
+    print(f"[{msg.sender}] {msg.content}")
+    if msg.content == "입력 필요":
+        send("승인합니다")  # 유저 → 에이전트
+
+result = run(
+    message="리포트 작성",
+    starting_agents=[writer],
+    on_message=on_message,
+)
+```
+
+- **에이전트 → 유저**: 에이전트가 `send_message(task_id="...", message="...")` 호출 → `on_message` 실행
+- **유저 → 에이전트**: 콜백 내에서 `send("...")` 호출 → 다음 반복에 에이전트 컨텍스트에 추가
+
+### 동작 원리
+
+1. `_execute_single`에서 유저 루프를 `AgentLoopRegistry`에 등록 + 유저→에이전트 `asyncio.Queue` 생성
+2. 시스템 프롬프트에 caller의 task_id 포함
+3. 에이전트가 `send_message()` 호출 → `on_message(msg, send)` 실행
+4. 유저가 `send("응답")` 호출 → 큐에 메시지 추가
+5. `_run_agent_loop` 매 반복 시작 시 큐 확인 → `context.add_user()`로 컨텍스트에 추가
+6. 루프 종료 시 유저 루프/큐 정리
+
+### 스트리밍에서의 양방향 메시지
+
+```python
+async for event in async_run_stream(
+    starting_agents=[writer],
+    message="작성해",
+    on_message=lambda msg, send: send("계속") if "막혔다" in msg.content else None,
+):
+    if event.type == "user_message":
+        print(f"진행: {event.data['message']}")
+    elif event.type == "finish":
+        print(f"완료: {event.data['output']}")
+```
+
+### 에이전트↔에이전트 중간 메시지
+
+caller_loop_id가 모든 에이전트에게 포함되므로, 에이전트가 서브 에이전트를 호출할 때도 서브 에이전트가 caller에게 중간 메시지를 보낼 수 있다:
+
+```
+[Agent A]
+    └── call_agent(agent_name="B", message="작업해")
+            │
+            └── [Agent B]
+                    ├── send_message(task_id="A의 loop_id", message="진행률 50%")
+                    └── finish("완료")
+```
+
+### 기본 도구 비활성화와의 조합
+
+`on_message` 메커니즘은 `send_message` 도구를 사용한다. `disabled_tools={"send_message"}`로 비활성화하면 중간 메시지 전송이 불가능하다:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -21,6 +21,7 @@ class StreamEvent:
         "agent_return",
         "finish",
         "error",
+        "user_message",
     ]
     agent_name: str
     call_id: str
@@ -39,6 +40,8 @@ async def async_run_stream(
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
     run_agents: list[Agent] | None = None,
+    disabled_tools: set[str] | None = None,
+    on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
 ) -> AsyncIterator[StreamEvent]:
     from agentouto.router import Router
     from agentouto.runtime import Runtime
@@ -65,12 +68,17 @@ async def async_run_stream(
             )
 
     router = Router(
-        run_agents_list, tools or [], providers or [], run_agents=run_agents_list
+        run_agents_list,
+        tools or [],
+        providers or [],
+        run_agents=run_agents_list,
+        disabled_tools=disabled_tools,
     )
     runtime = Runtime(
         router,
         extra_instructions=extra_instructions,
         extra_instructions_scope=extra_instructions_scope,
+        on_message=on_message,
     )
     async for event in runtime.execute_stream(
         starting_agents[0], message, attachments=attachments, history=history

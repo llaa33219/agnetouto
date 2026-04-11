@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import uuid
 from collections.abc import Awaitable, Callable
@@ -9,6 +10,8 @@ from typing import Literal
 
 from agentouto import Agent, Message
 from agentouto.exceptions import AgentError
+
+logger = logging.getLogger("agentouto")
 
 LoopStatus = Literal["pending", "running", "completed", "failed"]
 LoopExecutor = Callable[[Agent, str, list[Message] | None], Awaitable[str]]
@@ -114,15 +117,24 @@ class RegisteredAgentLoop:
     send_message() targeting any running agent.
     """
 
-    def __init__(self, agent: Agent, task_id: str) -> None:
+    def __init__(
+        self,
+        agent: Agent,
+        task_id: str,
+        *,
+        caller_loop_id: str | None = None,
+        on_message: Callable[[Message], None] | None = None,
+    ) -> None:
         self.agent = agent
         self.task_id = task_id
+        self.caller_loop_id = caller_loop_id
         self.status: LoopStatus = "running"
         self.messages: list[Message] = []
         self.message_queue: MessageQueue = MessageQueue()
         self.result: str | None = None
         self.error: str | None = None
         self._event_queue: asyncio.Queue | None = None
+        self._on_message = on_message
 
     async def inject_message(self, message: Message) -> None:
         if self.status not in {"pending", "running"}:
@@ -132,6 +144,15 @@ class RegisteredAgentLoop:
             )
         self.messages.append(message)
         await self.message_queue.enqueue(message)
+        if self._on_message is not None:
+            try:
+                self._on_message(message)
+            except Exception:
+                logger.warning(
+                    "on_message callback raised an exception for loop %s",
+                    self.task_id,
+                    exc_info=True,
+                )
 
     def get_status(self) -> LoopStatus:
         return self.status

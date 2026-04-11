@@ -4,7 +4,7 @@ import asyncio
 import logging
 import uuid
 import warnings
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -59,6 +59,7 @@ class Runtime:
         debug: bool = False,
         extra_instructions: str | None = None,
         extra_instructions_scope: Literal["entry", "all"] = "entry",
+        on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
     ) -> None:
         self._router = router
         self._debug = debug
@@ -66,6 +67,7 @@ class Runtime:
         self._messages: list[Message] = []
         self._extra_instructions = extra_instructions
         self._extra_instructions_scope = extra_instructions_scope
+        self._on_message = on_message
 
     async def execute(
         self,
@@ -118,7 +120,33 @@ class Runtime:
         attachments: list[Attachment] | None,
         history: list[Message] | None,
     ) -> RunResult:
+        from agentouto.loop_manager import RegisteredAgentLoop
+
         call_id = uuid.uuid4().hex
+
+        user_loop_id: str | None = None
+        user_out_queue: asyncio.Queue[str] | None = None
+        if self._on_message is not None:
+            user_loop_id = f"user_{call_id}"
+            user_out_queue = asyncio.Queue()
+            user_agent = Agent(name="user", instructions="", model="", provider="")
+
+            on_message = self._on_message
+            out_queue = user_out_queue
+
+            def send(message: str) -> None:
+                out_queue.put_nowait(message)
+
+            def _wrapped_on_message(msg: Message) -> None:
+                on_message(msg, send)
+
+            user_loop = RegisteredAgentLoop(
+                agent=user_agent,
+                task_id=user_loop_id,
+                on_message=_wrapped_on_message,
+            )
+            registry = AgentLoopRegistry.get_instance()
+            registry.register(user_loop_id, user_loop)
 
         self._messages.append(
             Message(
@@ -140,16 +168,22 @@ class Runtime:
             },
         )
 
-        output = await self._run_agent_loop(
-            agent,
-            forward_message,
-            call_id,
-            None,
-            "user",
-            attachments=attachments,
-            history=history,
-            extra_instructions=self._extra_instructions,
-        )
+        try:
+            output = await self._run_agent_loop(
+                agent,
+                forward_message,
+                call_id,
+                None,
+                "user",
+                attachments=attachments,
+                history=history,
+                extra_instructions=self._extra_instructions,
+                caller_loop_id=user_loop_id,
+                user_out_queue=user_out_queue,
+            )
+        finally:
+            if user_loop_id is not None:
+                AgentLoopRegistry.get_instance().unregister(user_loop_id)
 
         self._messages.append(
             Message(
@@ -195,17 +229,26 @@ class Runtime:
         history: list[Message] | None = None,
         loop_id: str | None = None,
         extra_instructions: str | None = None,
+        caller_loop_id: str | None = None,
+        user_out_queue: asyncio.Queue[str] | None = None,
     ) -> str:
         from agentouto.loop_manager import RegisteredAgentLoop
 
         if loop_id is None:
             loop_id = call_id
         registry = AgentLoopRegistry.get_instance()
-        registered_loop = RegisteredAgentLoop(agent=agent, task_id=loop_id)
+        registered_loop = RegisteredAgentLoop(
+            agent=agent,
+            task_id=loop_id,
+            caller_loop_id=caller_loop_id,
+        )
         registry.register(loop_id, registered_loop)
 
         system_prompt = self._router.build_system_prompt(
-            agent, caller=caller, extra_instructions=extra_instructions
+            agent,
+            caller=caller,
+            extra_instructions=extra_instructions,
+            caller_loop_id=caller_loop_id,
         )
         context = Context(system_prompt)
 
@@ -228,6 +271,14 @@ class Runtime:
                         )
                 except asyncio.QueueEmpty:
                     pass
+
+                if user_out_queue is not None:
+                    try:
+                        while True:
+                            user_msg = user_out_queue.get_nowait()
+                            context.add_user(user_msg)
+                    except asyncio.QueueEmpty:
+                        pass
 
                 await self._maybe_summarize(context, agent)
 
@@ -267,7 +318,17 @@ class Runtime:
 
                 finish_call = _find_finish(response.tool_calls)
                 if finish_call is not None:
-                    result = finish_call.arguments.get("message", "")
+                    finish_override = self._router.get_builtin_override(FINISH)
+                    if finish_override is not None:
+                        try:
+                            raw = await finish_override.execute(**finish_call.arguments)
+                            result = (
+                                raw.content if isinstance(raw, ToolResult) else str(raw)
+                            )
+                        except Exception as exc:
+                            result = f"Error in finish override: {exc}"
+                    else:
+                        result = finish_call.arguments.get("message", "")
                     self._record(
                         "finish",
                         agent.name,
@@ -282,7 +343,9 @@ class Runtime:
                 context.add_assistant_tool_calls(response.tool_calls, response.content)
 
                 tasks = [
-                    self._execute_tool_call(tc, agent.name, call_id)
+                    self._execute_tool_call(
+                        tc, agent.name, call_id, current_loop_id=loop_id
+                    )
                     for tc in response.tool_calls
                 ]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -330,8 +393,32 @@ class Runtime:
         return self._router.get_tool(tool_name)
 
     async def _execute_tool_call(
-        self, tc: ToolCall, caller_name: str, caller_call_id: str
+        self,
+        tc: ToolCall,
+        caller_name: str,
+        caller_call_id: str,
+        *,
+        current_loop_id: str | None = None,
     ) -> str | ToolResult:
+        from agentouto._constants import BUILTIN_TOOL_NAMES
+
+        override = self._router.get_builtin_override(tc.name)
+        if override is not None:
+            self._record(
+                "tool_exec",
+                caller_name,
+                caller_call_id,
+                None,
+                {"tool_name": tc.name, "arguments": tc.arguments, "override": True},
+            )
+            try:
+                return await override.execute(**tc.arguments)
+            except Exception as exc:
+                raise ToolError(tc.name, str(exc)) from exc
+
+        if tc.name in self._router.disabled_tools and tc.name in BUILTIN_TOOL_NAMES:
+            return f"Error: Tool '{tc.name}' is disabled in this run."
+
         if tc.name == CALL_AGENT:
             agent_name = tc.arguments.get("agent_name", "")
             message = tc.arguments.get("message", "")
@@ -402,6 +489,7 @@ class Runtime:
                 extra_instructions=self._extra_instructions
                 if self._extra_instructions_scope == "all"
                 else None,
+                caller_loop_id=current_loop_id,
             )
 
             self._messages.append(
@@ -476,6 +564,7 @@ class Runtime:
                 call_id=uuid.uuid4().hex,
             )
 
+            self._messages.append(msg)
             await bg_loop.inject_message(msg)
             return f"Message sent to {bg_loop.agent.name} (task_id: {task_id})"
 
@@ -617,9 +706,36 @@ class Runtime:
         attachments: list[Attachment] | None = None,
         history: list[Message] | None = None,
     ) -> AsyncIterator[StreamEvent]:
+        from agentouto.loop_manager import RegisteredAgentLoop
         from agentouto.streaming import StreamEvent
 
         call_id = uuid.uuid4().hex
+
+        user_loop_id: str | None = None
+        user_loop: RegisteredAgentLoop | None = None
+        user_out_queue: asyncio.Queue[str] | None = None
+        if self._on_message is not None:
+            user_loop_id = f"user_{call_id}"
+            user_out_queue = asyncio.Queue()
+            user_agent = Agent(name="user", instructions="", model="", provider="")
+
+            on_message = self._on_message
+            out_queue = user_out_queue
+
+            def send(message: str) -> None:
+                out_queue.put_nowait(message)
+
+            def _wrapped_on_message(msg: Message) -> None:
+                on_message(msg, send)
+
+            user_loop = RegisteredAgentLoop(
+                agent=user_agent,
+                task_id=user_loop_id,
+                on_message=_wrapped_on_message,
+            )
+            registry = AgentLoopRegistry.get_instance()
+            registry.register(user_loop_id, user_loop)
+
         self._messages.append(
             Message(
                 type="forward",
@@ -632,19 +748,39 @@ class Runtime:
         )
 
         output = ""
-        async for event in self._stream_agent_loop(
-            agent,
-            forward_message,
-            call_id,
-            None,
-            "user",
-            attachments=attachments,
-            history=history,
-            extra_instructions=self._extra_instructions,
-        ):
-            if event.type == "finish":
-                output = event.data.get("output", "")
-            yield event
+        try:
+            async for event in self._stream_agent_loop(
+                agent,
+                forward_message,
+                call_id,
+                None,
+                "user",
+                attachments=attachments,
+                history=history,
+                extra_instructions=self._extra_instructions,
+                caller_loop_id=user_loop_id,
+                user_out_queue=user_out_queue,
+            ):
+                if event.type == "finish":
+                    output = event.data.get("output", "")
+                yield event
+
+                if user_loop is not None:
+                    while True:
+                        try:
+                            msg = user_loop.message_queue._queue.get_nowait()
+                            yield StreamEvent(
+                                type="user_message",
+                                agent_name=msg.sender,
+                                call_id=msg.call_id,
+                                parent_call_id=call_id,
+                                data={"message": msg.content, "sender": msg.sender},
+                            )
+                        except asyncio.QueueEmpty:
+                            break
+        finally:
+            if user_loop_id is not None:
+                AgentLoopRegistry.get_instance().unregister(user_loop_id)
 
         self._messages.append(
             Message(
@@ -667,11 +803,16 @@ class Runtime:
         attachments: list[Attachment] | None = None,
         history: list[Message] | None = None,
         extra_instructions: str | None = None,
+        caller_loop_id: str | None = None,
+        user_out_queue: asyncio.Queue[str] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         from agentouto.streaming import StreamEvent
 
         system_prompt = self._router.build_system_prompt(
-            agent, caller=caller, extra_instructions=extra_instructions
+            agent,
+            caller=caller,
+            extra_instructions=extra_instructions,
+            caller_loop_id=caller_loop_id,
         )
         context = Context(system_prompt)
 
@@ -683,6 +824,14 @@ class Runtime:
         tool_schemas = self._router.build_tool_schemas(agent.name)
 
         while True:
+            if user_out_queue is not None:
+                try:
+                    while True:
+                        user_msg = user_out_queue.get_nowait()
+                        context.add_user(user_msg)
+                except asyncio.QueueEmpty:
+                    pass
+
             await self._maybe_summarize(context, agent)
 
             response = None
@@ -719,12 +868,23 @@ class Runtime:
 
             finish_call = _find_finish(response.tool_calls)
             if finish_call is not None:
+                finish_override = self._router.get_builtin_override(FINISH)
+                if finish_override is not None:
+                    try:
+                        raw = await finish_override.execute(**finish_call.arguments)
+                        output = (
+                            raw.content if isinstance(raw, ToolResult) else str(raw)
+                        )
+                    except Exception as exc:
+                        output = f"Error in finish override: {exc}"
+                else:
+                    output = finish_call.arguments.get("message", "")
                 yield StreamEvent(
                     type="finish",
                     agent_name=agent.name,
                     call_id=call_id,
                     parent_call_id=parent_call_id,
-                    data={"output": finish_call.arguments.get("message", "")},
+                    data={"output": output},
                 )
                 return
 
@@ -775,9 +935,45 @@ class Runtime:
         parent_call_id: str | None,
         context: Context,
     ) -> list[StreamEvent]:
+        from agentouto._constants import BUILTIN_TOOL_NAMES
         from agentouto.streaming import StreamEvent
 
         events: list[StreamEvent] = []
+
+        override = self._router.get_builtin_override(tc.name)
+        if override is not None:
+            try:
+                result = await override.execute(**tc.arguments)
+                result_str = (
+                    result.content if isinstance(result, ToolResult) else str(result)
+                )
+            except Exception as exc:
+                result_str = f"Error: {exc}"
+            context.add_tool_result(tc.id, tc.name, result_str)
+            events.append(
+                StreamEvent(
+                    type="tool_result",
+                    agent_name=caller_name,
+                    call_id=caller_call_id,
+                    parent_call_id=parent_call_id,
+                    data={"tool_name": tc.name, "result": result_str},
+                )
+            )
+            return events
+
+        if tc.name in self._router.disabled_tools and tc.name in BUILTIN_TOOL_NAMES:
+            err = f"Error: Tool '{tc.name}' is disabled in this run."
+            context.add_tool_result(tc.id, tc.name, err)
+            events.append(
+                StreamEvent(
+                    type="tool_result",
+                    agent_name=caller_name,
+                    call_id=caller_call_id,
+                    parent_call_id=parent_call_id,
+                    data={"tool_name": tc.name, "result": err},
+                )
+            )
+            return events
 
         if tc.name == CALL_AGENT:
             target_name = tc.arguments.get("agent_name", "")
@@ -988,6 +1184,8 @@ async def async_run(
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
     run_agents: list[Agent] | None = None,
+    disabled_tools: set[str] | None = None,
+    on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
 ) -> RunResult:
     if starting_agents is None or len(starting_agents) == 0:
         raise ValueError(
@@ -1011,13 +1209,18 @@ async def async_run(
             )
 
     router = Router(
-        run_agents_list, tools or [], providers or [], run_agents=run_agents_list
+        run_agents_list,
+        tools or [],
+        providers or [],
+        run_agents=run_agents_list,
+        disabled_tools=disabled_tools,
     )
     runtime = Runtime(
         router,
         debug=debug,
         extra_instructions=extra_instructions,
         extra_instructions_scope=extra_instructions_scope,
+        on_message=on_message,
     )
     return await runtime.execute(
         message,
@@ -1039,6 +1242,8 @@ def run(
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
     run_agents: list[Agent] | None = None,
+    disabled_tools: set[str] | None = None,
+    on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
 ) -> RunResult:
     return asyncio.run(
         async_run(
@@ -1052,6 +1257,8 @@ def run(
             extra_instructions=extra_instructions,
             extra_instructions_scope=extra_instructions_scope,
             run_agents=run_agents,
+            disabled_tools=disabled_tools,
+            on_message=on_message,
         )
     )
 
@@ -1178,6 +1385,7 @@ async def run_background(
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
     run_agents: list[Agent] | None = None,
+    disabled_tools: set[str] | None = None,
 ) -> str:
     if starting_agents is None or len(starting_agents) == 0:
         raise ValueError(
@@ -1199,7 +1407,11 @@ async def run_background(
             )
 
     router = Router(
-        run_agents_list, tools or [], providers or [], run_agents=run_agents_list
+        run_agents_list,
+        tools or [],
+        providers or [],
+        run_agents=run_agents_list,
+        disabled_tools=disabled_tools,
     )
     runtime = Runtime(
         router,
@@ -1228,6 +1440,7 @@ def run_background_sync(
     extra_instructions: str | None = None,
     extra_instructions_scope: Literal["entry", "all"] = "entry",
     run_agents: list[Agent] | None = None,
+    disabled_tools: set[str] | None = None,
 ) -> str:
     return asyncio.run(
         run_background(
@@ -1240,6 +1453,7 @@ def run_background_sync(
             extra_instructions=extra_instructions,
             extra_instructions_scope=extra_instructions_scope,
             run_agents=run_agents,
+            disabled_tools=disabled_tools,
         )
     )
 

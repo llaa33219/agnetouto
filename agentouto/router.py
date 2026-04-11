@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from agentouto._constants import CALL_AGENT, FINISH
+from agentouto._constants import BUILTIN_TOOL_NAMES, CALL_AGENT, FINISH
 from agentouto.agent import Agent
 from agentouto.context import Context
 from agentouto.exceptions import ProviderError, RoutingError, ToolError
@@ -20,14 +20,30 @@ class Router:
         providers: list[Provider],
         *,
         run_agents: list[Agent] | None = None,
+        disabled_tools: set[str] | None = None,
     ) -> None:
+        _disabled = frozenset(disabled_tools) if disabled_tools else frozenset()
+        if FINISH in _disabled:
+            raise ValueError(
+                "Cannot disable 'finish' tool — agents need it to return results. "
+                "Use a finish override instead if you want custom finish behavior."
+            )
+
         self._agents: dict[str, Agent] = {a.name: a for a in agents}
-        self._tools: dict[str, Tool] = {t.name: t for t in tools}
         self._providers: dict[str, Provider] = {p.name: p for p in providers}
         self._backends: dict[str, ProviderBackend] = {}
         self._run_agents: dict[str, Agent] | None = (
             {a.name: a for a in run_agents} if run_agents is not None else None
         )
+        self._disabled_tools: frozenset[str] = _disabled
+
+        self._tools: dict[str, Tool] = {}
+        self._builtin_overrides: dict[str, Tool] = {}
+        for t in tools:
+            if t.name in BUILTIN_TOOL_NAMES:
+                self._builtin_overrides[t.name] = t
+            else:
+                self._tools[t.name] = t
 
     @property
     def agent_names(self) -> list[str]:
@@ -36,6 +52,13 @@ class Router:
     @property
     def tool_names(self) -> list[str]:
         return list(self._tools.keys())
+
+    @property
+    def disabled_tools(self) -> frozenset[str]:
+        return self._disabled_tools
+
+    def get_builtin_override(self, name: str) -> Tool | None:
+        return self._builtin_overrides.get(name)
 
     def get_agent(self, name: str) -> Agent:
         if name not in self._agents:
@@ -53,8 +76,19 @@ class Router:
         for tool in self._tools.values():
             schemas.append(tool.to_schema())
 
-        schemas.append(
-            {
+        for name, schema in self._builtin_tool_schemas().items():
+            if name in self._disabled_tools and name not in self._builtin_overrides:
+                continue
+            if name in self._builtin_overrides:
+                schemas.append(self._builtin_overrides[name].to_schema())
+            else:
+                schemas.append(schema)
+
+        return schemas
+
+    def _builtin_tool_schemas(self) -> dict[str, dict[str, Any]]:
+        return {
+            CALL_AGENT: {
                 "name": CALL_AGENT,
                 "description": (
                     "Call another agent. The agent will process your message "
@@ -97,11 +131,8 @@ class Router:
                     },
                     "required": ["agent_name", "message"],
                 },
-            }
-        )
-
-        schemas.append(
-            {
+            },
+            "spawn_background_agent": {
                 "name": "spawn_background_agent",
                 "description": (
                     "Spawn an agent to run in the background. Returns a task_id "
@@ -138,22 +169,19 @@ class Router:
                     },
                     "required": ["agent_name", "message"],
                 },
-            }
-        )
-
-        schemas.append(
-            {
+            },
+            "send_message": {
                 "name": "send_message",
                 "description": (
-                    "Send a message to a background agent. The agent will receive "
-                    "it as a new user input in its running loop."
+                    "Send a message to a running agent (background agent or your caller). "
+                    "The agent will receive it as a new user input in its running loop."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "task_id": {
                             "type": "string",
-                            "description": "Task ID of the background agent (from spawn_background_agent or call_agent with background=True)",
+                            "description": "Task ID of the target agent",
                         },
                         "message": {
                             "type": "string",
@@ -162,11 +190,8 @@ class Router:
                     },
                     "required": ["task_id", "message"],
                 },
-            }
-        )
-
-        schemas.append(
-            {
+            },
+            "get_messages": {
                 "name": "get_messages",
                 "description": (
                     "Retrieve messages from a background agent. Returns status, "
@@ -187,11 +212,8 @@ class Router:
                     },
                     "required": ["task_id"],
                 },
-            }
-        )
-
-        schemas.append(
-            {
+            },
+            FINISH: {
                 "name": FINISH,
                 "description": (
                     "Return your final result to the caller. "
@@ -209,16 +231,15 @@ class Router:
                     },
                     "required": ["message"],
                 },
-            }
-        )
-
-        return schemas
+            },
+        }
 
     def build_system_prompt(
         self,
         agent: Agent,
         caller: str | None = None,
         extra_instructions: str | None = None,
+        caller_loop_id: str | None = None,
     ) -> str:
         visible_agents = (
             self._run_agents if self._run_agents is not None else self._agents
@@ -234,10 +255,15 @@ class Router:
 
         if caller:
             lines.append("")
-            lines.append(f"INVOKED BY: You have been called by '{caller}'. ")
+            lines.append(f"INVOKED BY: You have been called by '{caller}'.")
             lines.append(
                 "Consider their request carefully and fulfill it to the best of your ability."
             )
+            if caller_loop_id:
+                lines.append(
+                    f"Your caller's task_id is '{caller_loop_id}'. "
+                    f'Send progress updates: send_message(task_id="{caller_loop_id}", message="your update")'
+                )
 
         if other_agents:
             lines.append("")

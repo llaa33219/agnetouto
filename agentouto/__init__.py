@@ -8,6 +8,7 @@ from agentouto.auth import (
     TokenData,
     TokenStore,
 )
+from agentouto._constants import BUILTIN_TOOL_NAMES
 from agentouto.context import Attachment
 from agentouto.event_log import AgentEvent, EventLog
 from agentouto.exceptions import AuthError
@@ -47,6 +48,7 @@ __all__ = [
     "AuthMethod",
     "BackgroundAgentLoop",
     "BackgroundResult",
+    "BUILTIN_TOOL_NAMES",
     "ClaudeOAuth",
     "clear_cache",
     "EventLog",

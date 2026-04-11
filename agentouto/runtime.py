@@ -350,18 +350,18 @@ class Runtime:
                 ]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                for tc, result in zip(response.tool_calls, results):
-                    if isinstance(result, BaseException):
-                        context.add_tool_result(tc.id, tc.name, f"Error: {result}")
-                    elif isinstance(result, ToolResult):
+                for tc, tool_result in zip(response.tool_calls, results):
+                    if isinstance(tool_result, BaseException):
+                        context.add_tool_result(tc.id, tc.name, f"Error: {tool_result}")
+                    elif isinstance(tool_result, ToolResult):
                         context.add_tool_result(
                             tc.id,
                             tc.name,
-                            result.content,
-                            attachments=result.attachments,
+                            tool_result.content,
+                            attachments=tool_result.attachments,
                         )
                     else:
-                        context.add_tool_result(tc.id, tc.name, result)
+                        context.add_tool_result(tc.id, tc.name, str(tool_result))
         finally:
             registry.unregister(loop_id)
 

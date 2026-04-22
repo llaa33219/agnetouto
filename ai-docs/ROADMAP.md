@@ -8,9 +8,9 @@
 
 ## 1. 현재 상태
 
-**버전:** 0.24.1 (공개)
+**버전:** 0.26.0 (공개)
 
-**최종 업데이트:** 기본 도구 오버라이드/비활성화 + 에이전트 중간 메시지
+**최종 업데이트:** 요약 시 다음 작업 계획 자동 생성 (Phase 24)
 
 ---
 
@@ -275,6 +275,44 @@
 - [x] `Runtime.execute_stream`: 유저 루프 등록 + `user_message` 이벤트 yield
 - [x] `__init__.py`: `BUILTIN_TOOL_NAMES` 공개 API 엑스포트
 - [x] 8개 신규 테스트, 214개 전체 통과
+
+### Phase 23: 백그라운드 에이전트 기본 비활성화 ✅
+
+- [x] `Router.__init__`: `allow_background_agents: bool = False` 파라미터 추가
+- [x] `Router._builtin_tool_schemas`: `allow_background_agents=False`일 때 `spawn_background_agent`와 `call_agent`의 `background` 파라미터 제외
+- [x] `Router.build_system_prompt`: `allow_background_agents=False`일 때 BACKGROUND EXECUTION 섹션 제외
+- [x] `Runtime.__init__`: `allow_background_agents: bool = False` 파라미터 추가
+- [x] `Runtime._execute_tool_call`: `allow_background_agents=False`일 때 `call_agent(background=True)`와 `spawn_background_agent` 호출 시 에러 반환
+- [x] `run()`, `async_run()`, `run_background()`, `run_background_sync()`, `async_run_stream()`에 `allow_background_agents` 파라미터 추가
+- [x] 테스트 업데이트: `test_background.py`의 `_mk_runtime` 헬퍼에 `allow_background_agents` 파라미터 추가
+- [x] 테스트 업데이트: `test_router.py`에 기본값 테스트 + `allow_background_agents=True` 테스트 추가
+- [x] 2개 신규 테스트, 219개 전체 통과
+- [x] README 업데이트 (Background Execution 섹션, Tool Override/Disable 섹션)
+- [x] ai-docs 업데이트 (ARCHITECTURE, MESSAGE_PROTOCOL, ROADMAP)
+
+### Phase 24: 요약 시 다음 작업 계획 자동 생성 ✅
+
+- [x] `summarizer.py`: `SummaryResult` dataclass 추가 (`summary`, `next_steps` 필드)
+- [x] `summarizer.py`: `parse_summary_response()` 함수 추가 — `<summary>` / `<next_steps>` 태그 파싱
+- [x] `summarizer.py`: `build_self_summarize_context()` 프롬프트 수정 — 다음 작업 계획 생성 지시 + 태그 형식 지정
+- [x] `runtime.py`: `_maybe_summarize()` 수정 — 요약 후 `next_steps`가 있으면 컨텍스트에 시스템 메시지로 주입
+- [x] `runtime.py`: `parse_summary_response` import 추가
+- [x] 테스트 추가: `test_summarizer.py`에 `parse_summary_response` 테스트 케이스 추가
+- [x] ai-docs 업데이트 (ARCHITECTURE.md, ROADMAP.md)
+
+### Phase 25: 요약 사용자 후킹 (`on_summarize` 콜백) ✅
+
+- [x] `summarizer.py`: `SummarizeInfo` dataclass 추가 (`agent_name`, `messages_to_summarize`, `summary`, `next_steps`, `tokens_before`, `tokens_after`)
+- [x] `runtime.py`: `Runtime.__init__`에 `on_summarize` 파라미터 추가
+- [x] `runtime.py`: `_maybe_summarize()` 수정 — 요약 생성 후 `on_summarize` 콜백 호출, 반환값으로 summary 대체 가능
+- [x] `runtime.py`: `async_run()`에 `on_summarize` 파라미터 추가
+- [x] `runtime.py`: `run()`에 `on_summarize` 파라미터 추가
+- [x] `runtime.py`: `run_background()`에 `on_summarize` 파라미터 추가
+- [x] `runtime.py`: `run_background_sync()`에 `on_summarize` 파라미터 추가
+- [x] `streaming.py`: `async_run_stream()`에 `on_summarize` 파라미터 추가
+- [x] `__init__.py`: `SummarizeInfo` 공개 API 엑스포트 추가
+- [x] 테스트 추가: `test_summarizer.py`에 `on_summarize` 콜백 테스트 3개 추가 (정보 수신, summary 대체, 에러 무시)
+- [x] ai-docs 업데이트 (ARCHITECTURE.md, ROADMAP.md)
 
 ---
 

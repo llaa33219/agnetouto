@@ -22,6 +22,7 @@ from agentouto.summarizer import (
     estimate_context_tokens,
     find_summarization_boundary,
     needs_summarization,
+    parse_summary_response,
 )
 from agentouto.tool import Tool, ToolResult
 from agentouto.tracing import Trace
@@ -60,6 +61,8 @@ class Runtime:
         extra_instructions: str | None = None,
         extra_instructions_scope: Literal["entry", "all"] = "entry",
         on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
+        allow_background_agents: bool = False,
+        on_summarize: Callable[[SummarizeInfo], str | None] | None = None,
     ) -> None:
         self._router = router
         self._debug = debug
@@ -68,6 +71,8 @@ class Runtime:
         self._extra_instructions = extra_instructions
         self._extra_instructions_scope = extra_instructions_scope
         self._on_message = on_message
+        self._allow_background_agents = allow_background_agents
+        self._on_summarize = on_summarize
 
     async def execute(
         self,
@@ -466,6 +471,8 @@ class Runtime:
             )
 
             if background:
+                if not self._allow_background_agents:
+                    return "Error: Background agent spawning is disabled. Use allow_background_agents=True to enable it."
                 task_id = await self._spawn_background_agent(
                     message,
                     [target],
@@ -513,6 +520,9 @@ class Runtime:
             return f"[{agent_name}]{result}[/{agent_name}]"
 
         if tc.name == "spawn_background_agent":
+            if not self._allow_background_agents:
+                return "Error: Background agent spawning is disabled. Use allow_background_agents=True to enable it."
+
             agent_name = tc.arguments.get("agent_name", "")
             message = tc.arguments.get("message", "")
             history_arg = tc.arguments.get("history")
@@ -629,26 +639,59 @@ class Runtime:
         if not needs_summarization(context, context_window):
             return
 
-        tokens = estimate_context_tokens(context)
+        tokens_before = estimate_context_tokens(context)
         messages = context.messages
         split = find_summarization_boundary(messages, context_window)
         if split is None:
             return
 
+        messages_to_summarize = messages[:split]
         summarize_context = build_self_summarize_context(
-            messages[:split], context.system_prompt
+            messages_to_summarize, context.system_prompt
         )
 
         try:
             response = await self._router.call_llm(agent, summarize_context, [])
             if response.content:
-                context.replace_with_summary(response.content, keep_from=split)
+                parsed = parse_summary_response(response.content)
+                summary = parsed.summary
+                next_steps = parsed.next_steps
+
+                if self._on_summarize is not None:
+                    try:
+                        from agentouto.summarizer import SummarizeInfo
+
+                        tokens_after_llm = estimate_context_tokens(context)
+                        info = SummarizeInfo(
+                            agent_name=agent.name,
+                            messages_to_summarize=list(messages_to_summarize),
+                            summary=summary,
+                            next_steps=next_steps,
+                            tokens_before=tokens_before,
+                            tokens_after=tokens_after_llm,
+                        )
+                        overridden = self._on_summarize(info)
+                        if overridden is not None:
+                            summary = overridden
+                    except Exception as exc:
+                        logger.warning(
+                            "[%s] on_summarize callback raised an error: %s",
+                            agent.name,
+                            exc,
+                        )
+
+                context.replace_with_summary(summary, keep_from=split)
+                if next_steps:
+                    context.add_user(
+                        f"[SYSTEM] Summary complete. Based on the summary, the following next steps have been identified:\n{next_steps}\n\nProceed with these next steps when you continue."
+                    )
+                tokens_after = estimate_context_tokens(context)
                 logger.info(
                     "[%s] Self-summarized %d messages (%d → %d est. tokens)",
                     agent.name,
                     split,
-                    tokens,
-                    estimate_context_tokens(context),
+                    tokens_before,
+                    tokens_after,
                 )
         except Exception as exc:
             logger.warning("[%s] Self-summarization failed: %s", agent.name, exc)
@@ -1186,6 +1229,8 @@ async def async_run(
     run_agents: list[Agent] | None = None,
     disabled_tools: set[str] | None = None,
     on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
+    allow_background_agents: bool = False,
+    on_summarize: Callable[[SummarizeInfo], str | None] | None = None,
 ) -> RunResult:
     if starting_agents is None or len(starting_agents) == 0:
         raise ValueError(
@@ -1214,6 +1259,7 @@ async def async_run(
         providers or [],
         run_agents=run_agents_list,
         disabled_tools=disabled_tools,
+        allow_background_agents=allow_background_agents,
     )
     runtime = Runtime(
         router,
@@ -1221,6 +1267,8 @@ async def async_run(
         extra_instructions=extra_instructions,
         extra_instructions_scope=extra_instructions_scope,
         on_message=on_message,
+        allow_background_agents=allow_background_agents,
+        on_summarize=on_summarize,
     )
     return await runtime.execute(
         message,
@@ -1244,6 +1292,8 @@ def run(
     run_agents: list[Agent] | None = None,
     disabled_tools: set[str] | None = None,
     on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
+    allow_background_agents: bool = False,
+    on_summarize: Callable[[SummarizeInfo], str | None] | None = None,
 ) -> RunResult:
     return asyncio.run(
         async_run(
@@ -1259,6 +1309,8 @@ def run(
             run_agents=run_agents,
             disabled_tools=disabled_tools,
             on_message=on_message,
+            allow_background_agents=allow_background_agents,
+            on_summarize=on_summarize,
         )
     )
 
@@ -1386,6 +1438,8 @@ async def run_background(
     extra_instructions_scope: Literal["entry", "all"] = "entry",
     run_agents: list[Agent] | None = None,
     disabled_tools: set[str] | None = None,
+    allow_background_agents: bool = False,
+    on_summarize: Callable[[SummarizeInfo], str | None] | None = None,
 ) -> str:
     if starting_agents is None or len(starting_agents) == 0:
         raise ValueError(
@@ -1412,11 +1466,14 @@ async def run_background(
         providers or [],
         run_agents=run_agents_list,
         disabled_tools=disabled_tools,
+        allow_background_agents=allow_background_agents,
     )
     runtime = Runtime(
         router,
         extra_instructions=extra_instructions,
         extra_instructions_scope=extra_instructions_scope,
+        allow_background_agents=allow_background_agents,
+        on_summarize=on_summarize,
     )
     return await runtime._spawn_background_agent(
         message,
@@ -1441,6 +1498,8 @@ def run_background_sync(
     extra_instructions_scope: Literal["entry", "all"] = "entry",
     run_agents: list[Agent] | None = None,
     disabled_tools: set[str] | None = None,
+    allow_background_agents: bool = False,
+    on_summarize: Callable[[SummarizeInfo], str | None] | None = None,
 ) -> str:
     return asyncio.run(
         run_background(
@@ -1454,6 +1513,8 @@ def run_background_sync(
             extra_instructions_scope=extra_instructions_scope,
             run_agents=run_agents,
             disabled_tools=disabled_tools,
+            allow_background_agents=allow_background_agents,
+            on_summarize=on_summarize,
         )
     )
 

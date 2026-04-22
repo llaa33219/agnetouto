@@ -42,6 +42,8 @@ async def async_run_stream(
     run_agents: list[Agent] | None = None,
     disabled_tools: set[str] | None = None,
     on_message: Callable[[Message, Callable[[str], None]], None] | None = None,
+    allow_background_agents: bool = False,
+    on_summarize: Callable[[Any], str | None] | None = None,
 ) -> AsyncIterator[StreamEvent]:
     from agentouto.router import Router
     from agentouto.runtime import Runtime
@@ -73,12 +75,15 @@ async def async_run_stream(
         providers or [],
         run_agents=run_agents_list,
         disabled_tools=disabled_tools,
+        allow_background_agents=allow_background_agents,
     )
     runtime = Runtime(
         router,
         extra_instructions=extra_instructions,
         extra_instructions_scope=extra_instructions_scope,
         on_message=on_message,
+        allow_background_agents=allow_background_agents,
+        on_summarize=on_summarize,
     )
     async for event in runtime.execute_stream(
         starting_agents[0], message, attachments=attachments, history=history

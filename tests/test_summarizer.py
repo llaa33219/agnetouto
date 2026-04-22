@@ -15,6 +15,7 @@ from agentouto.summarizer import (
     build_summary_prompt,
     estimate_context_tokens,
     find_summarization_boundary,
+    parse_summary_response,
 )
 from agentouto.tool import Tool
 
@@ -209,6 +210,87 @@ class TestBuildSummaryPrompt:
         assert "User:" in result
         assert "Assistant:" in result
         assert "Tool result" in result
+
+
+# --- Summary Response Parsing ---
+
+
+class TestParseSummaryResponse:
+    def test_full_format(self) -> None:
+        content = """<summary>
+The user asked about AI trends. We searched and found GPT-5 info.
+</summary>
+
+<next_steps>
+1. Research Claude 4 updates
+2. Write comparison report
+</next_steps>"""
+        result = parse_summary_response(content)
+        assert "AI trends" in result.summary
+        assert "GPT-5" in result.summary
+        assert "Claude 4" in (result.next_steps or "")
+        assert "comparison report" in (result.next_steps or "")
+
+    def test_next_steps_none(self) -> None:
+        content = """<summary>
+Task completed successfully.
+</summary>
+
+<next_steps>
+None
+</next_steps>"""
+        result = parse_summary_response(content)
+        assert "Task completed" in result.summary
+        assert result.next_steps is None
+
+    def test_fallback_no_tags(self) -> None:
+        content = "Just a plain summary without any tags."
+        result = parse_summary_response(content)
+        assert result.summary == content.strip()
+        assert result.next_steps is None
+
+    def test_fallback_partial_summary_tag(self) -> None:
+        content = """<summary>
+Only summary tag exists.
+</summary>"""
+        result = parse_summary_response(content)
+        assert "Only summary tag" in result.summary
+        assert result.next_steps is None
+
+    def test_case_insensitive_tags(self) -> None:
+        content = """<SUMMARY>
+Mixed case tags.
+</Summary>
+
+<Next_Steps>
+Investigate further.
+</NEXT_STEPS>"""
+        result = parse_summary_response(content)
+        assert "Mixed case" in result.summary
+        assert "Investigate" in (result.next_steps or "")
+
+    def test_empty_next_steps(self) -> None:
+        content = """<summary>
+Done.
+</summary>
+
+<next_steps>
+
+</next_steps>"""
+        result = parse_summary_response(content)
+        assert result.summary == "Done."
+        assert result.next_steps is None
+
+    def test_na_next_steps(self) -> None:
+        content = """<summary>
+Summary here.
+</summary>
+
+<next_steps>
+N/A
+</next_steps>"""
+        result = parse_summary_response(content)
+        assert result.next_steps is None
 
 
 # --- Context.replace_with_summary ---
@@ -465,3 +547,125 @@ class TestRuntimeSummarization:
             )
         assert result.output == "done"
         assert mock._call_count == 1
+
+
+class TestOnSummarizeCallback:
+    @pytest.mark.asyncio
+    async def test_on_summarize_receives_info(self, provider: Provider, search_tool: Tool) -> None:
+        agent = Agent(
+            name="agent_a",
+            instructions="A.",
+            model="gpt-4o",
+            provider="openai",
+            context_window=200,
+        )
+
+        captured_info = None
+
+        def on_summarize(info):
+            nonlocal captured_info
+            captured_info = info
+            return None
+
+        call_count = 0
+
+        class CapturingBackend(ProviderBackend):
+            async def call(self, context, tools, agent, provider):
+                nonlocal call_count
+                call_count += 1
+                if not tools:
+                    return LLMResponse(content="<summary>Short</summary>\n<next_steps>1. Done</next_steps>")
+                if call_count == 1:
+                    return _tool_call("search", "tc1", query="x")
+                return _finish("final")
+
+        mock = CapturingBackend()
+        with patch("agentouto.router.get_backend", return_value=mock):
+            result = await async_run(
+                starting_agents=[agent],
+                message="Do something long " * 20,
+                tools=[search_tool],
+                providers=[provider],
+                on_summarize=on_summarize,
+            )
+        assert result.output == "final"
+        assert captured_info is not None
+        assert captured_info.agent_name == "agent_a"
+        assert captured_info.summary == "Short"
+        assert "Done" in (captured_info.next_steps or "")
+
+    @pytest.mark.asyncio
+    async def test_on_summarize_can_override_summary(self, provider: Provider, search_tool: Tool) -> None:
+        agent = Agent(
+            name="agent_a",
+            instructions="A.",
+            model="gpt-4o",
+            provider="openai",
+            context_window=200,
+        )
+
+        def on_summarize(info):
+            return "OVERRIDDEN SUMMARY"
+
+        call_count = 0
+        last_context = None
+
+        class OverridingBackend(ProviderBackend):
+            async def call(self, context, tools, agent, provider):
+                nonlocal call_count, last_context
+                call_count += 1
+                if not tools:
+                    return LLMResponse(content="<summary>Original</summary>\n<next_steps>None</next_steps>")
+                last_context = context
+                if call_count == 1:
+                    return _tool_call("search", "tc1", query="x")
+                return _finish("final")
+
+        mock = OverridingBackend()
+        with patch("agentouto.router.get_backend", return_value=mock):
+            result = await async_run(
+                starting_agents=[agent],
+                message="Long message " * 20,
+                tools=[search_tool],
+                providers=[provider],
+                on_summarize=on_summarize,
+            )
+        assert result.output == "final"
+        assert last_context is not None
+        assert any("OVERRIDDEN SUMMARY" in (m.content or "") for m in last_context.messages)
+
+    @pytest.mark.asyncio
+    async def test_on_summarize_error_is_ignored(self, provider: Provider, search_tool: Tool) -> None:
+        agent = Agent(
+            name="agent_a",
+            instructions="A.",
+            model="gpt-4o",
+            provider="openai",
+            context_window=200,
+        )
+
+        def on_summarize(info):
+            raise RuntimeError("callback error")
+
+        call_count = 0
+
+        class ErrorBackend(ProviderBackend):
+            async def call(self, context, tools, agent, provider):
+                nonlocal call_count
+                call_count += 1
+                if not tools:
+                    return LLMResponse(content="<summary>Short</summary>\n<next_steps>None</next_steps>")
+                if call_count == 1:
+                    return _tool_call("search", "tc1", query="x")
+                return _finish("final")
+
+        mock = ErrorBackend()
+        with patch("agentouto.router.get_backend", return_value=mock):
+            result = await async_run(
+                starting_agents=[agent],
+                message="Long message " * 20,
+                tools=[search_tool],
+                providers=[provider],
+                on_summarize=on_summarize,
+            )
+        assert result.output == "final"

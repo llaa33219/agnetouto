@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from agentouto.context import Context, ContextMessage
 
 _SUMMARIZE_THRESHOLD = 0.70  # 70% of context window triggers self-summarization
@@ -9,8 +11,25 @@ _SUMMARIZE_SYSTEM = (
     "You are a summarization assistant. Your task is to summarize the conversation history "
     "below into a concise form that preserves key facts, decisions, tool call results, "
     "and important context. "
+    "Additionally, identify what work remains and what the next steps should be. "
     "Focus on information that would be needed to continue this conversation meaningfully."
 )
+
+
+@dataclass
+class SummaryResult:
+    summary: str
+    next_steps: str | None = None
+
+
+@dataclass
+class SummarizeInfo:
+    agent_name: str
+    messages_to_summarize: list[ContextMessage]
+    summary: str
+    next_steps: str | None
+    tokens_before: int
+    tokens_after: int
 
 
 def needs_summarization(context: Context, context_window: int) -> bool:
@@ -32,10 +51,61 @@ Please provide a concise summary that preserves:
 - Context needed to continue the conversation
 - Any pending tasks or goals
 
-Summary:"""
+Also include a brief "Next Steps" section describing what work remains and what should be done next.
+
+Use this exact format:
+
+< summary >
+[Your summary here]
+< /summary >
+
+< next_steps >
+[Your next steps here, or "None" if no further work is needed]
+< /next_steps >"""
     ctx = Context(system_prompt)
     ctx.add_user(full_prompt)
     return ctx
+
+
+def parse_summary_response(content: str) -> SummaryResult:
+    """Parse a summary response into summary and next_steps.
+
+    Expects the format:
+    < summary >
+    ...
+    < /summary >
+
+    < next_steps >
+    ...
+    < /next_steps >
+
+    Falls back to treating the entire content as the summary if tags are not found.
+    """
+    import re
+
+    summary_match = re.search(
+        r"<\s*summary\s*>\s*(.*?)\s*<\s*/summary\s*>",
+        content,
+        re.DOTALL | re.IGNORECASE,
+    )
+    next_steps_match = re.search(
+        r"<\s*next_steps\s*>\s*(.*?)\s*<\s*/next_steps\s*>",
+        content,
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    if summary_match:
+        summary = summary_match.group(1).strip()
+    else:
+        summary = content.strip()
+
+    next_steps = None
+    if next_steps_match:
+        next_steps = next_steps_match.group(1).strip()
+        if next_steps.lower() in ("none", "none.", "n/a", "n/a.", ""):
+            next_steps = None
+
+    return SummaryResult(summary=summary, next_steps=next_steps)
 
 
 def estimate_context_tokens(context: Context) -> int:

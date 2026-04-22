@@ -296,23 +296,26 @@ A(call_agent B) → B(call_agent A) → A(call_agent A) → A(finish) → A(fini
 
 에이전트를 백그라운드에서 실행하고 다른 루프의 에이전트와 통신할 수 있다.
 
+**기본적으로 비활성화.** 에이전트의 백그라운드 에이전트 소환은 기본적으로 금지되어 있다. `allow_background_agents=True`를 전달해야 백그라운드 실행이 가능하다.
+
 ### 백그라운드 에이전트 스폰
 
-`call_agent`에 `background=True`를 사용하거나 `run_background()`公开 API를 사용:
+`allow_background_agents=True` 설정 후 `call_agent`에 `background=True`를 사용하거나 `run_background()` 공개 API를 사용:
 
 ```python
 from agentouto import run_background
 
-# 공개 API로 백그라운드 스폰
+# 공개 API로 백그라운드 스폰 (allow_background_agents=True 필요)
 task_id = run_background(
     message="Write a report on AI trends.",
     starting_agents=[writer, researcher],
     tools=[search_web],
     providers=[openai],
+    allow_background_agents=True,
 )
 # task_id = "bg_abc123"
 
-# 에이전트 내부에서 call_agent 사용
+# 에이전트 낭部에서 call_agent 사용 (allow_background_agents=True 설정 시에만 가능)
 call_agent(agent_name="writer", message="...", background=True)
 → "Background agent started. Task ID: bg_abc123"
 ```

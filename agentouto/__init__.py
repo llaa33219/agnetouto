@@ -35,6 +35,7 @@ from agentouto.runtime import (
     get_background_agent_status,
 )
 from agentouto.streaming import StreamEvent, async_run_stream
+from agentouto.summarizer import SummarizeInfo
 from agentouto.tool import Tool, ToolResult
 from agentouto.tracing import Span, Trace
 
@@ -67,6 +68,7 @@ __all__ = [
     "send_message_to_background_agent",
     "Span",
     "StreamEvent",
+    "SummarizeInfo",
     "TokenData",
     "TokenStore",
     "Tool",

@@ -57,10 +57,10 @@ def _mk_agent(name: str) -> Agent:
     )
 
 
-def _mk_runtime(*agents: Agent) -> Runtime:
+def _mk_runtime(*agents: Agent, allow_background_agents: bool = False) -> Runtime:
     provider = Provider(name="openai", kind="openai", api_key="sk-test")
-    router = Router(list(agents), [], [provider])
-    return Runtime(router)
+    router = Router(list(agents), [], [provider], allow_background_agents=allow_background_agents)
+    return Runtime(router, allow_background_agents=allow_background_agents)
 
 
 def _clear_registry() -> None:
@@ -269,7 +269,7 @@ class TestBackgroundExecutionIntegration:
     async def test_call_agent_background_returns_task_id_and_runs(self) -> None:
         caller = _mk_agent("caller")
         worker = _mk_agent("worker")
-        runtime = _mk_runtime(caller, worker)
+        runtime = _mk_runtime(caller, worker, allow_background_agents=True)
 
         mock = MockBackend([_finish("background done")])
         with patch("agentouto.router.get_backend", return_value=mock):
@@ -298,6 +298,30 @@ class TestBackgroundExecutionIntegration:
             final = await bg_loop.get_result()
             assert final == "background done"
             assert bg_loop.get_status() == "completed"
+
+    @pytest.mark.asyncio
+    async def test_call_agent_background_disabled_by_default(self) -> None:
+        caller = _mk_agent("caller")
+        worker = _mk_agent("worker")
+        runtime = _mk_runtime(caller, worker)
+
+        result = await runtime._execute_tool_call(
+            ToolCall(
+                id="tc1",
+                name="call_agent",
+                arguments={
+                    "agent_name": "worker",
+                    "message": "run in background",
+                    "background": True,
+                },
+            ),
+            caller_name="caller",
+            caller_call_id="cid_parent",
+        )
+
+        assert isinstance(result, str)
+        assert "disabled" in result
+        assert "allow_background_agents=True" in result
 
     @pytest.mark.asyncio
     async def test_send_message_injects_and_get_messages_reports_status(self) -> None:

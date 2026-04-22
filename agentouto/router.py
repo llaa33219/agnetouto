@@ -21,6 +21,7 @@ class Router:
         *,
         run_agents: list[Agent] | None = None,
         disabled_tools: set[str] | None = None,
+        allow_background_agents: bool = False,
     ) -> None:
         _disabled = frozenset(disabled_tools) if disabled_tools else frozenset()
         if FINISH in _disabled:
@@ -36,6 +37,7 @@ class Router:
             {a.name: a for a in run_agents} if run_agents is not None else None
         )
         self._disabled_tools: frozenset[str] = _disabled
+        self._allow_background_agents: bool = allow_background_agents
 
         self._tools: dict[str, Tool] = {}
         self._builtin_overrides: dict[str, Tool] = {}
@@ -87,52 +89,62 @@ class Router:
         return schemas
 
     def _builtin_tool_schemas(self) -> dict[str, dict[str, Any]]:
-        return {
-            CALL_AGENT: {
-                "name": CALL_AGENT,
-                "description": (
-                    "Call another agent. The agent will process your message "
-                    "and return a result when done. Use background=True to run "
-                    "the agent in background and get a task_id immediately."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "agent_name": {
-                            "type": "string",
-                            "description": "Name of the agent to call",
-                        },
-                        "message": {
-                            "type": "string",
-                            "description": "Message to send to the agent",
-                        },
-                        "history": {
-                            "type": "array",
-                            "description": "Optional conversation history to attach (from previous RunResult.messages)",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "type": {
-                                        "type": "string",
-                                        "enum": ["forward", "return"],
-                                    },
-                                    "sender": {"type": "string"},
-                                    "receiver": {"type": "string"},
-                                    "content": {"type": "string"},
+        call_agent_schema: dict[str, Any] = {
+            "name": CALL_AGENT,
+            "description": (
+                "Call another agent. The agent will process your message "
+                "and return a result when done."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Name of the agent to call",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message to send to the agent",
+                    },
+                    "history": {
+                        "type": "array",
+                        "description": "Optional conversation history to attach (from previous RunResult.messages)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["forward", "return"],
                                 },
-                                "required": ["type", "sender", "receiver", "content"],
+                                "sender": {"type": "string"},
+                                "receiver": {"type": "string"},
+                                "content": {"type": "string"},
                             },
-                        },
-                        "background": {
-                            "type": "boolean",
-                            "description": "If true, spawn the agent in background and return task_id immediately. The agent will run independently.",
-                            "default": False,
+                            "required": ["type", "sender", "receiver", "content"],
                         },
                     },
-                    "required": ["agent_name", "message"],
                 },
+                "required": ["agent_name", "message"],
             },
-            "spawn_background_agent": {
+        }
+        if self._allow_background_agents:
+            call_agent_schema["description"] = (
+                "Call another agent. The agent will process your message "
+                "and return a result when done. Use background=True to run "
+                "the agent in background and get a task_id immediately."
+            )
+            call_agent_schema["parameters"]["properties"]["background"] = {
+                "type": "boolean",
+                "description": "If true, spawn the agent in background and return task_id immediately. The agent will run independently.",
+                "default": False,
+            }
+
+        schemas: dict[str, dict[str, Any]] = {
+            CALL_AGENT: call_agent_schema,
+        }
+
+        if self._allow_background_agents:
+            schemas["spawn_background_agent"] = {
                 "name": "spawn_background_agent",
                 "description": (
                     "Spawn an agent to run in the background. Returns a task_id "
@@ -169,7 +181,9 @@ class Router:
                     },
                     "required": ["agent_name", "message"],
                 },
-            },
+            }
+
+        schemas.update({
             "send_message": {
                 "name": "send_message",
                 "description": (
@@ -232,7 +246,9 @@ class Router:
                     "required": ["message"],
                 },
             },
-        }
+        })
+
+        return schemas
 
     def build_system_prompt(
         self,
@@ -310,27 +326,6 @@ class Router:
         )
 
         lines.append("")
-        lines.append("BACKGROUND EXECUTION:")
-        lines.append(
-            "- Use call_agent(agent_name, message, background=True) to spawn an agent that runs independently."
-        )
-        lines.append(
-            "- When background=True, the agent runs in a SEPARATE loop and returns a task_id immediately."
-        )
-        lines.append(
-            "- Use send_message(task_id, message) to send messages to a running background agent."
-        )
-        lines.append(
-            "- Use get_messages(task_id) to check status and retrieve messages from a background agent."
-        )
-        lines.append(
-            "- Background agents are ideal for: long-running tasks, concurrent work, agents that need to receive messages mid-execution."
-        )
-        lines.append(
-            "- Unlike parallel call_agent (same loop), background agents have their own isolated loop and context."
-        )
-
-        lines.append("")
         lines.append(
             "IMPORTANT: You MUST call the finish tool to return your final result. "
             "Plain text responses are NOT delivered to the caller — "
@@ -338,6 +333,28 @@ class Router:
             "Never respond with plain text when you are done."
         )
         lines.append("Use call_agent to delegate work to other agents.")
+
+        if self._allow_background_agents:
+            lines.append("")
+            lines.append("BACKGROUND EXECUTION:")
+            lines.append(
+                "- Use call_agent(agent_name, message, background=True) to spawn an agent that runs independently."
+            )
+            lines.append(
+                "- When background=True, the agent runs in a SEPARATE loop and returns a task_id immediately."
+            )
+            lines.append(
+                "- Use send_message(task_id, message) to send messages to a running background agent."
+            )
+            lines.append(
+                "- Use get_messages(task_id) to check status and retrieve messages from a background agent."
+            )
+            lines.append(
+                "- Background agents are ideal for: long-running tasks, concurrent work, agents that need to receive messages mid-execution."
+            )
+            lines.append(
+                "- Unlike parallel call_agent (same loop), background agents have their own isolated loop and context."
+            )
 
         return "\n".join(lines)
 

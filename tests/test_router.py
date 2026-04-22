@@ -9,7 +9,7 @@ from agentouto.router import Router
 from agentouto.tool import Tool
 
 
-def _make_router() -> Router:
+def _make_router(allow_background_agents: bool = False) -> Router:
     @Tool
     def search(query: str) -> str:
         """Search the web."""
@@ -26,7 +26,7 @@ def _make_router() -> Router:
     ]
     tools = [search, read_file]
     providers = [Provider(name="openai", kind="openai", api_key="sk-test")]
-    return Router(agents, tools, providers)
+    return Router(agents, tools, providers, allow_background_agents=allow_background_agents)
 
 
 class TestBuildSystemPrompt:
@@ -69,6 +69,22 @@ class TestBuildToolSchemas:
         call_agent_schema = next(s for s in schemas if s["name"] == "call_agent")
         assert "agent_name" in call_agent_schema["parameters"]["properties"]
         assert "message" in call_agent_schema["parameters"]["properties"]
+
+    def test_spawn_background_agent_excluded_by_default(self) -> None:
+        router = _make_router()
+        schemas = router.build_tool_schemas("researcher")
+        names = [s["name"] for s in schemas]
+        assert "spawn_background_agent" not in names
+        call_agent_schema = next(s for s in schemas if s["name"] == "call_agent")
+        assert "background" not in call_agent_schema["parameters"]["properties"]
+
+    def test_spawn_background_agent_included_when_allowed(self) -> None:
+        router = _make_router(allow_background_agents=True)
+        schemas = router.build_tool_schemas("researcher")
+        names = [s["name"] for s in schemas]
+        assert "spawn_background_agent" in names
+        call_agent_schema = next(s for s in schemas if s["name"] == "call_agent")
+        assert "background" in call_agent_schema["parameters"]["properties"]
 
     def test_includes_finish(self) -> None:
         router = _make_router()

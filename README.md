@@ -359,6 +359,8 @@ When a tool returns `ToolResult` with attachments, the LLM can visually analyze 
 
 Built-in tools (`call_agent`, `spawn_background_agent`, `send_message`, `get_messages`, `finish`) can be overridden or disabled at the `run()` level.
 
+**Note:** `spawn_background_agent` and the `background` parameter on `call_agent` are only exposed when `allow_background_agents=True`. By default, agents cannot spawn background agents at all.
+
 #### Disabling Tools
 
 Pass `disabled_tools` to exclude built-in tools from the tool schemas sent to the LLM:
@@ -369,6 +371,7 @@ result = run(
     starting_agents=[researcher],
     tools=[search_web],
     providers=[openai],
+    allow_background_agents=True,
     disabled_tools={"spawn_background_agent", "get_messages"},
 )
 # The LLM won't see spawn_background_agent or get_messages in its tool list.
@@ -564,9 +567,23 @@ for msg in result.messages:
 
 Agents can run in **isolated loops** that can receive messages while running. This enables true concurrent agents that can communicate during execution.
 
+**By default, background agent spawning is disabled.** Agents can still call each other normally via `call_agent`, but they cannot spawn background agents unless you explicitly enable it.
+
+To enable background agents, pass `allow_background_agents=True`:
+
+```python
+result = run(
+    message="Research and report.",
+    starting_agents=[researcher, writer],
+    tools=[search_web],
+    providers=[openai],
+    allow_background_agents=True,  # Enable background agent spawning
+)
+```
+
 #### Spawning Background Agents
 
-Use `call_agent` with `background=True`, or use `run_background()` directly:
+Once enabled, use `call_agent` with `background=True`, or use `run_background()` directly:
 
 ```python
 from agentouto import run_background
@@ -577,10 +594,12 @@ task_id = run_background(
     starting_agents=[researcher, writer],
     tools=[search_web],
     providers=[openai],
+    allow_background_agents=True,  # Required
 )
 # task_id = "bg_abc123"
 
 # Or use call_agent with background=True from within an agent
+# (only works when allow_background_agents=True)
 call_agent(
     agent_name="researcher",
     message="Research the latest in AI.",
@@ -671,6 +690,7 @@ task_id = run_background(
     starting_agents=[researcher],
     tools=[search_web],
     providers=[openai],
+    allow_background_agents=True,  # Required to enable background spawning
 )
 # task_id = "bg_res_001"
 
@@ -984,6 +1004,7 @@ agentouto/
 | **20** | Starting agents (all parallel) + visibility scoping (run_agents) + tagged output format | ✅ Done |
 | **21** | Built-in tool override/disable (`disabled_tools` parameter) | ✅ Done |
 | **22** | Intermediate messages (`on_message` callback, `user_message` StreamEvent) | ✅ Done |
+| **23** | Background agents disabled by default (`allow_background_agents` parameter) | ✅ Done |
 
 ---
 

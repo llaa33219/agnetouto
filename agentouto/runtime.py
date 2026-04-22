@@ -18,6 +18,7 @@ from agentouto.message import Message
 from agentouto.provider import Provider
 from agentouto.router import Router
 from agentouto.summarizer import (
+    SummarizeInfo,
     build_self_summarize_context,
     estimate_context_tokens,
     find_summarization_boundary,

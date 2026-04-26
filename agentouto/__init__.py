@@ -14,6 +14,7 @@ from agentouto.event_log import AgentEvent, EventLog
 from agentouto.exceptions import AuthError
 from agentouto.message import Message
 from agentouto.model_metadata import clear_cache
+from agentouto.providers import Usage
 import importlib
 
 _loop_manager = importlib.import_module("agentouto.loop_manager")
@@ -74,6 +75,7 @@ __all__ = [
     "Tool",
     "ToolResult",
     "Trace",
+    "Usage",
     "async_run",
     "async_run_stream",
     "run",

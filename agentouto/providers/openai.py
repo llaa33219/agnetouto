@@ -12,7 +12,7 @@ from agentouto.context import Attachment, Context, ToolCall
 from agentouto.exceptions import ProviderError
 from agentouto.model_metadata import resolve_max_output_tokens
 from agentouto.provider import Provider
-from agentouto.providers import LLMResponse, ProviderBackend
+from agentouto.providers import LLMResponse, ProviderBackend, Usage
 
 logger = logging.getLogger("agentouto")
 
@@ -80,7 +80,14 @@ class OpenAIBackend(ProviderBackend):
                     )
                 )
 
-        return LLMResponse(content=msg.content, tool_calls=parsed_calls)
+        usage: Usage | None = None
+        if response.usage is not None:
+            usage = Usage(
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+            )
+
+        return LLMResponse(content=msg.content, tool_calls=parsed_calls, usage=usage)
 
     async def stream(
         self,
@@ -99,6 +106,7 @@ class OpenAIBackend(ProviderBackend):
             "model": agent.model,
             "messages": messages,
             "stream": True,
+            "stream_options": {"include_usage": True},
             **agent.extra,
         }
         max_tokens = await resolve_max_output_tokens(
@@ -120,6 +128,7 @@ class OpenAIBackend(ProviderBackend):
 
         accumulated_content = ""
         accumulated_tool_calls: dict[int, dict[str, str]] = {}
+        accumulated_usage: Usage | None = None
 
         async for chunk in response_stream:
             if not chunk.choices:
@@ -149,6 +158,12 @@ class OpenAIBackend(ProviderBackend):
                                 tc_delta.function.arguments
                             )
 
+            if chunk.usage is not None:
+                accumulated_usage = Usage(
+                    input_tokens=chunk.usage.prompt_tokens,
+                    output_tokens=chunk.usage.completion_tokens,
+                )
+
         parsed_calls: list[ToolCall] = []
         for idx in sorted(accumulated_tool_calls):
             tc = accumulated_tool_calls[idx]
@@ -160,7 +175,7 @@ class OpenAIBackend(ProviderBackend):
                 )
             )
 
-        yield LLMResponse(content=accumulated_content or None, tool_calls=parsed_calls)
+        yield LLMResponse(content=accumulated_content or None, tool_calls=parsed_calls, usage=accumulated_usage)
 
 
 def _build_attachment_parts(attachments: list[Attachment]) -> list[dict[str, Any]]:

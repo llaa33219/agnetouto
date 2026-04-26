@@ -52,7 +52,7 @@ agentouto/
 | `Tool` | class | 도구 데코레이터/클래스 |
 | `Provider` | dataclass | 프로바이더 (API 접속 정보) |
 | `Message` | dataclass | 전달/반환 메시지 |
-| `RunResult` | dataclass | 실행 결과 컨테이너 (output, messages, trace, event_log) |
+| `RunResult` | dataclass | 실행 결과 컨테이너 (output, messages, trace, event_log, token_usage) |
 | `run()` | function | 동기 실행 진입점 |
 | `async_run()` | async function | 비동기 실행 진입점 |
 | `async_run_stream()` | async generator | 스트리밍 실행 진입점 (StreamEvent 생성) |
@@ -73,6 +73,7 @@ agentouto/
 | `StreamEvent` | dataclass | 스트리밍 이벤트 |
 | `Attachment` | dataclass | 파일 첨부 데이터 (이미지, 오디오 등) |
 | `ToolResult` | dataclass | 도구 리치 반환 타입 (텍스트 + 첨부파일) |
+| `Usage` | dataclass | LLM API 토큰 사용량 (input_tokens, output_tokens, total_tokens) |
 | `BUILTIN_TOOL_NAMES` | frozenset | 기본 도구 이름 집합 (call_agent, spawn_background_agent, send_message, get_messages, finish) |
 | `AuthMethod` | ABC | 인증 방식 추상 클래스 (API 키, OAuth 등) |
 | `ApiKeyAuth` | class | 정적 API 키 인증 (하위 호환 래퍼) |
@@ -268,9 +269,23 @@ class SummaryResult:
     summary: str
     next_steps: str | None
 def parse_summary_response(content: str) -> SummaryResult       # 요약 응답 파싱 (요약 + 다음 단계)
+class SummarizeInfo:
+    agent_name: str
+    messages_to_summarize: list[ContextMessage]
+    summary: str
+    next_steps: str | None
+    tokens_before: int
+    tokens_after: int
 ```
 
-**토큰 추정**: `len(text) // 4` 휴리스틱 사용. 정밀한 계산이 아닌 트리거 판단용.
+**토큰 추정 (하이브리드 방식):**
+
+Runtime은 `_estimate_current_tokens()`로 현재 컨텍스트 크기를 추정한다:
+1. **API 응답 토큰 우선**: `_last_input_tokens` (마지막 API 호출의 실제 input_tokens)가 있으면 사용
+2. **증가분 추정**: 이후 추가된 메시지만 `_estimate_message_tokens()`로 추정하여 합산
+3. **폴백**: 첫 호출 시 `_last_input_tokens=None`이면 기존 `estimate_context_tokens()` (`len÷4`) 사용
+
+이는 순수 추정(`len÷4`)보다 정확하며, API가 반환한 실제 토큰 수를 기반으로 한다.
 
 **자가 요약 (`build_self_summarize_context`)**: 에이전트가 스스로 대화를 요약하는 방식. 70% 임계값 초과 시:
 1. 요약할 메시지를 포맷하여 프롬프트 생성
@@ -437,13 +452,15 @@ async for event in get_stream_events(task_id):
 
 ```python
 class Runtime:
-    def __init__(router, debug=False, extra_instructions=None, extra_instructions_scope="entry", on_message=None, allow_background_agents=False)
+    def __init__(router, debug=False, extra_instructions=None, extra_instructions_scope="entry", on_message=None, allow_background_agents=False, on_summarize=None)
     async def execute(agent, forward_message, *, attachments=None, history=None) -> RunResult
     async def _execute_single(agent, forward_message, attachments, history) -> RunResult  # 유저 루프 등록/해제
     async def _run_agent_loop(agent, forward_message, call_id, parent_call_id, *, attachments=None, history=None, extra_instructions=None, caller_loop_id=None) -> str
     async def _execute_tool_call(tc, caller_name, caller_call_id, *, current_loop_id=None) -> str | ToolResult
     async def execute_stream(agent, forward_message, *, attachments=None, history=None) -> AsyncIterator[StreamEvent]
     async def _stream_agent_loop(agent, forward_message, call_id, parent_call_id, *, attachments=None, history=None, extra_instructions=None, caller_loop_id=None) -> AsyncIterator[StreamEvent]
+    def _accumulate_usage(response: LLMResponse) -> None  # LLM 응답의 토큰 사용량 누적
+    def _estimate_current_tokens(context: Context) -> int  # 하이브리드 토큰 추정
 ```
 
 **디버그 모드:**
@@ -455,6 +472,13 @@ class Runtime:
 **메시지 추적:**
 - 매 에이전트 호출/반환 시점에 `Message` 객체를 생성하여 `self._messages`에 수집
 - `debug=False`여도 메시지는 항상 수집됨
+
+**토큰 사용량 추적:**
+- `_token_usage: Usage` — 모든 LLM 호출의 토큰 사용량 누적
+- `_last_input_tokens: int | None` — 마지막 API 호출의 실제 input_tokens (하이브리드 추정용)
+- `_last_message_count: int` — 마지막 LLM 호출 시점의 메시지 수
+- `_accumulate_usage(response)` — `LLMResponse.usage`가 있으면 `_token_usage`에 합산
+- `_estimate_current_tokens(context)` — 실제 토큰 + 새 메시지 추정으로 정확한 컨텍스트 크기 계산
 
 **에이전트 루프 (`_run_agent_loop`):**
 1. 시스템 프롬프트 생성 → Context 초기화
@@ -510,9 +534,12 @@ class RunResult:
     messages: list[Message]              # 모든 전달/반환 메시지 (항상 수집)
     trace: Trace | None                  # 호출 트리 (debug=True일 때만)
     event_log: EventLog | None           # 이벤트 로그 (debug=True일 때만)
+    token_usage: Usage                   # 누적 API 토큰 사용량
 
     def format_trace() -> str            # trace.print_tree() 편의 메서드
 ```
+
+**`token_usage`**: 모든 LLM 호출의 토큰 사용량이 누적된다. `input_tokens`는 프롬프트 토큰, `output_tokens`는 응답 토큰. 요약 LLM 호출의 토큰도 포함된다.
 
 ### `_constants.py`
 
@@ -643,9 +670,16 @@ class TokenData:
 ### `providers/__init__.py`
 
 ```python
+@dataclass
+class Usage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens -> int  # property: input_tokens + output_tokens
+
 class LLMResponse:
     content: str | None
     tool_calls: list[ToolCall]
+    usage: Usage | None                    # API 토큰 사용량 (선택적)
     content_without_reasoning -> str | None  # property: 추론 태그 제외 content
 
 class ProviderBackend(ABC):
@@ -658,6 +692,13 @@ def get_backend(kind: str) -> ProviderBackend  # 팩토리 함수
 ```
 
 `get_backend`는 lazy import로 각 백엔드 모듈을 로드한다.
+
+**`Usage` 데이터클래스:**
+- `input_tokens`: 프롬프트에 사용된 토큰 수
+- `output_tokens`: LLM 응답에 사용된 토큰 수
+- `total_tokens` 프로퍼티: `input_tokens + output_tokens`
+- `__add__`, `__iadd__` 연산자 지원: 여러 호출의 토큰 합산 가능
+- 모든 프로바이더 백엔드가 API 응답에서 추출하여 `LLMResponse.usage`에 포함
 
 **추론 태그 유틸리티:**
 - `_content_outside_reasoning(content)` — `<think>`, `<thinking>`, `<reason>`, `<reasoning>` 태그 내용을 제외한 텍스트 반환

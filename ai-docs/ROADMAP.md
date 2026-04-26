@@ -8,9 +8,9 @@
 
 ## 1. 현재 상태
 
-**버전:** 0.26.0 (공개)
+**버전:** 0.27.0 (공개)
 
-**최종 업데이트:** 요약 시 다음 작업 계획 자동 생성 (Phase 24)
+**최종 업데이트:** API 토큰 사용량 추적 + 하이브리드 요약 트리거 (Phase 26)
 
 ---
 
@@ -314,13 +314,30 @@
 - [x] 테스트 추가: `test_summarizer.py`에 `on_summarize` 콜백 테스트 3개 추가 (정보 수신, summary 대체, 에러 무시)
 - [x] ai-docs 업데이트 (ARCHITECTURE.md, ROADMAP.md)
 
+### Phase 26: API 토큰 사용량 추적 + 하이브리드 요약 트리거 ✅
+
+- [x] `providers/__init__.py`: `Usage` 데이터클래스 추가 (`input_tokens`, `output_tokens`, `total_tokens` 프로퍼티, `__add__`/`__iadd__`)
+- [x] `providers/__init__.py`: `LLMResponse`에 `usage: Usage | None` 필드 추가
+- [x] `providers/openai.py`: `response.usage.prompt_tokens`/`completion_tokens` 추출, 스트리밍에 `stream_options={"include_usage": True}` 추가
+- [x] `providers/openai_responses.py`: `response.usage.input_tokens`/`output_tokens` 추출, 스트리밍에서 `response.done` 이벤트 처리
+- [x] `providers/anthropic.py`: `message_start`에서 `input_tokens`, `message_delta`에서 `output_tokens` 추출
+- [x] `providers/google.py`: `response.usage_metadata.prompt_token_count`/`candidates_token_count` 추출
+- [x] `runtime.py`: `RunResult`에 `token_usage: Usage` 필드 추가
+- [x] `runtime.py`: `Runtime._token_usage` 필드로 모든 LLM 호출의 토큰 누적
+- [x] `runtime.py`: `_accumulate_usage(response)` 메서드 — LLM 응답의 usage를 누적
+- [x] `runtime.py`: `_estimate_current_tokens(context)` 메서드 — 하이브리드 토큰 추정 (실제 API 토큰 + 새 메시지 추정)
+- [x] `runtime.py`: `_last_input_tokens`, `_last_message_count` 필드로 실제 토큰 기반 추적
+- [x] `runtime.py`: `_maybe_summarize()`에서 `_estimate_current_tokens()` 사용으로 요약 트리거 정확도 향상
+- [x] `__init__.py`: `Usage` 공개 API 엑스포트 추가
+- [x] 229개 테스트 통과
+- [x] ai-docs 업데이트 (ARCHITECTURE, PROVIDER_BACKENDS, ROADMAP)
+
 ---
 
 ## 3. 미구현 기능
 
 ### 추가 고려 사항
 - [ ] Google GCP OAuth 2.0 (자체 GCP 프로젝트 기반, 공식 지원 무료 티어)
-- [ ] 토큰 사용량 추적
 - [ ] 비용 추적
 - [ ] 타임아웃 설정 (에이전트 레벨)
 - [ ] 재시도 로직 (프로바이더 레벨)
@@ -342,6 +359,24 @@
 ---
 
 ## 5. 변경 이력
+
+### 0.27.0 (Phase 26: API 토큰 사용량 추적 + 하이브리드 요약 트리거)
+
+- Phase 26 완료: API 토큰 사용량 추적 및 하이브리드 요약 트리거
+  - `providers/__init__.py`: `Usage` 데이터클래스 추가 (`input_tokens`, `output_tokens`, `total_tokens`, `__add__`/`__iadd__`)
+  - `providers/__init__.py`: `LLMResponse`에 `usage: Usage | None` 필드 추가
+  - 모든 프로바이더 백엔드에서 API 응답의 토큰 사용량 추출:
+    - OpenAI Chat Completions: `response.usage.prompt_tokens`/`completion_tokens`, 스트리밍에 `stream_options` 추가
+    - OpenAI Responses API: `response.usage.input_tokens`/`output_tokens`, 스트리밍에서 `response.done` 이벤트 처리
+    - Anthropic: `message_start`에서 `input_tokens`, `message_delta`에서 `output_tokens` 추출
+    - Google Gemini: `response.usage_metadata.prompt_token_count`/`candidates_token_count` 추출
+  - `runtime.py`: `RunResult.token_usage` 필드로 누적 토큰 사용량 제공
+  - `runtime.py`: `_accumulate_usage()`로 매 LLM 호출마다 토큰 누적
+  - `runtime.py`: `_estimate_current_tokens()`로 하이브리드 토큰 추정 (실제 API 토큰 + 새 메시지 추정)
+  - `runtime.py`: 요약 트리거가 실제 토큰 기반으로 동작하여 정확도 향상
+  - `__init__.py`: `Usage` 공개 API 엑스포트
+  - 229개 테스트 통과
+  - ai-docs 업데이트 (ARCHITECTURE, PROVIDER_BACKENDS, ROADMAP)
 
 ### 0.24.0 (Phase 21-22: 기본 도구 오버라이드/비활성화 + 에이전트 양방향 메시지)
 

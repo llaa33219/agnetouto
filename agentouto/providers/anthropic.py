@@ -12,7 +12,7 @@ from agentouto.context import Attachment, Context, ToolCall
 from agentouto.exceptions import ProviderError
 from agentouto.model_metadata import resolve_max_output_tokens
 from agentouto.provider import Provider
-from agentouto.providers import LLMResponse, ProviderBackend
+from agentouto.providers import LLMResponse, ProviderBackend, Usage
 
 logger = logging.getLogger("agentouto")
 
@@ -99,6 +99,8 @@ class AnthropicBackend(ProviderBackend):
 
         accumulated_content = ""
         tool_blocks: dict[int, dict[str, Any]] = {}
+        input_tokens = 0
+        output_tokens = 0
 
         async for event in response_stream:
             if event.type == "content_block_start":
@@ -115,6 +117,12 @@ class AnthropicBackend(ProviderBackend):
                 elif event.delta.type == "input_json_delta":
                     if event.index in tool_blocks:
                         tool_blocks[event.index]["input_json"] += event.delta.partial_json
+            elif event.type == "message_start":
+                if event.message.usage:
+                    input_tokens = event.message.usage.input_tokens or 0
+            elif event.type == "message_delta":
+                if event.usage:
+                    output_tokens = event.usage.output_tokens or 0
 
         if not accumulated_content and not tool_blocks:
             raise ProviderError(provider.name, "Empty response: no content blocks returned")
@@ -131,8 +139,9 @@ class AnthropicBackend(ProviderBackend):
                 ToolCall(id=tb["id"], name=tb["name"], arguments=arguments)
             )
 
+        usage = Usage(input_tokens=input_tokens, output_tokens=output_tokens) if input_tokens or output_tokens else None
         yield LLMResponse(
-            content=accumulated_content or None, tool_calls=parsed_calls,
+            content=accumulated_content or None, tool_calls=parsed_calls, usage=usage,
         )
 
 

@@ -12,7 +12,7 @@ from agentouto.context import Attachment, Context, ToolCall
 from agentouto.exceptions import ProviderError
 from agentouto.model_metadata import resolve_max_output_tokens
 from agentouto.provider import Provider
-from agentouto.providers import LLMResponse, ProviderBackend
+from agentouto.providers import LLMResponse, ProviderBackend, Usage
 from agentouto.providers.openai import _parse_tool_arguments
 
 logger = logging.getLogger("agentouto")
@@ -107,6 +107,7 @@ class OpenAIResponsesBackend(ProviderBackend):
 
         accumulated_text = ""
         tool_calls_buffer: dict[int, dict[str, str]] = {}
+        usage: Usage | None = None
 
         async for event in response_stream:
             event_type = getattr(event, "type", "")
@@ -133,6 +134,13 @@ class OpenAIResponsesBackend(ProviderBackend):
                 if idx in tool_calls_buffer and delta:
                     tool_calls_buffer[idx]["arguments"] += delta
 
+            elif event_type == "response.done":
+                if event.response and getattr(event.response, "usage", None):
+                    usage = Usage(
+                        input_tokens=getattr(event.response.usage, "input_tokens", 0) or 0,
+                        output_tokens=getattr(event.response.usage, "output_tokens", 0) or 0,
+                    )
+
         parsed_calls: list[ToolCall] = []
         for idx in sorted(tool_calls_buffer):
             tc = tool_calls_buffer[idx]
@@ -144,7 +152,7 @@ class OpenAIResponsesBackend(ProviderBackend):
                 )
             )
 
-        yield LLMResponse(content=accumulated_text or None, tool_calls=parsed_calls)
+        yield LLMResponse(content=accumulated_text or None, tool_calls=parsed_calls, usage=usage)
 
 
 def _build_attachment_parts(attachments: list[Attachment]) -> list[dict[str, Any]]:
@@ -231,4 +239,11 @@ def _parse_response(response: Any) -> LLMResponse:
 
     content = getattr(response, "output_text", None) or None
 
-    return LLMResponse(content=content, tool_calls=tool_calls)
+    usage: Usage | None = None
+    if response.usage is not None:
+        usage = Usage(
+            input_tokens=getattr(response.usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(response.usage, "output_tokens", 0) or 0,
+        )
+
+    return LLMResponse(content=content, tool_calls=tool_calls, usage=usage)

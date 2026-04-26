@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -28,16 +29,41 @@ def _content_outside_reasoning(content: str) -> str:
     return _REASONING_TAG_RE.sub("", content).strip()
 
 
+@dataclass
+class Usage:
+    """Token usage from an LLM API call."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+    def __add__(self, other: Usage) -> Usage:
+        return Usage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+        )
+
+    def __iadd__(self, other: Usage) -> Usage:
+        self.input_tokens += other.input_tokens
+        self.output_tokens += other.output_tokens
+        return self
+
+
 class LLMResponse:
-    __slots__ = ("content", "tool_calls")
+    __slots__ = ("content", "tool_calls", "usage")
 
     def __init__(
         self,
         content: str | None = None,
         tool_calls: list[ToolCall] | None = None,
+        usage: Usage | None = None,
     ) -> None:
         self.content = content
         self.tool_calls = tool_calls or []
+        self.usage = usage
 
     @property
     def content_without_reasoning(self) -> str | None:

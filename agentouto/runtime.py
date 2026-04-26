@@ -16,9 +16,12 @@ from agentouto.exceptions import RoutingError, ToolError
 from agentouto.loop_manager import AgentLoopRegistry, BackgroundAgentLoop
 from agentouto.message import Message
 from agentouto.provider import Provider
+from agentouto.providers import Usage
 from agentouto.router import Router
 from agentouto.summarizer import (
     SummarizeInfo,
+    _SUMMARIZE_THRESHOLD,
+    _estimate_message_tokens,
     build_self_summarize_context,
     estimate_context_tokens,
     find_summarization_boundary,
@@ -47,6 +50,7 @@ class RunResult:
     messages: list[Message] = field(default_factory=list)
     trace: Trace | None = None
     event_log: EventLog | None = None
+    token_usage: Usage = field(default_factory=Usage)
 
     def format_trace(self) -> str:
         if self.trace is None:
@@ -74,6 +78,14 @@ class Runtime:
         self._on_message = on_message
         self._allow_background_agents = allow_background_agents
         self._on_summarize = on_summarize
+        self._token_usage = Usage()
+        self._last_input_tokens: int | None = None
+        self._last_message_count: int = 0
+
+    def _accumulate_usage(self, response: LLMResponse) -> None:
+        if response.usage is not None:
+            self._token_usage += response.usage
+            self._last_input_tokens = response.usage.input_tokens
 
     async def execute(
         self,
@@ -117,6 +129,7 @@ class Runtime:
             messages=self._messages,
             trace=trace,
             event_log=self._event_log,
+            token_usage=self._token_usage,
         )
 
     async def _execute_single(
@@ -221,6 +234,7 @@ class Runtime:
             messages=self._messages,
             trace=trace,
             event_log=self._event_log,
+            token_usage=self._token_usage,
         )
 
     async def _run_agent_loop(
@@ -299,6 +313,8 @@ class Runtime:
                 )
 
                 response = await self._router.call_llm(agent, context, tool_schemas)
+                self._accumulate_usage(response)
+                self._last_message_count = len(context.messages)
 
                 self._record(
                     "llm_response",
@@ -637,10 +653,11 @@ class Runtime:
             except Exception:
                 return
 
-        if not needs_summarization(context, context_window):
+        current_tokens = self._estimate_current_tokens(context)
+        if current_tokens <= int(context_window * _SUMMARIZE_THRESHOLD):
             return
 
-        tokens_before = estimate_context_tokens(context)
+        tokens_before = current_tokens
         messages = context.messages
         split = find_summarization_boundary(messages, context_window)
         if split is None:
@@ -653,6 +670,7 @@ class Runtime:
 
         try:
             response = await self._router.call_llm(agent, summarize_context, [])
+            self._accumulate_usage(response)
             if response.content:
                 parsed = parse_summary_response(response.content)
                 summary = parsed.summary
@@ -662,7 +680,7 @@ class Runtime:
                     try:
                         from agentouto.summarizer import SummarizeInfo
 
-                        tokens_after_llm = estimate_context_tokens(context)
+                        tokens_after_llm = self._estimate_current_tokens(context)
                         info = SummarizeInfo(
                             agent_name=agent.name,
                             messages_to_summarize=list(messages_to_summarize),
@@ -682,13 +700,14 @@ class Runtime:
                         )
 
                 context.replace_with_summary(summary, keep_from=split)
+                self._last_message_count = len(context.messages)
                 if next_steps:
                     context.add_user(
                         f"[SYSTEM] Summary complete. Based on the summary, the following next steps have been identified:\n{next_steps}\n\nProceed with these next steps when you continue."
                     )
-                tokens_after = estimate_context_tokens(context)
+                tokens_after = self._estimate_current_tokens(context)
                 logger.info(
-                    "[%s] Self-summarized %d messages (%d → %d est. tokens)",
+                    "[%s] Self-summarized %d messages (%d → %d tokens)",
                     agent.name,
                     split,
                     tokens_before,
@@ -696,6 +715,19 @@ class Runtime:
                 )
         except Exception as exc:
             logger.warning("[%s] Self-summarization failed: %s", agent.name, exc)
+
+    def _estimate_current_tokens(self, context: Context) -> int:
+        if self._last_input_tokens is not None:
+            current_count = len(context.messages)
+            new_messages = current_count - self._last_message_count
+            if new_messages > 0:
+                new_msg_tokens = sum(
+                    _estimate_message_tokens(msg)
+                    for msg in context.messages[self._last_message_count:]
+                )
+                return self._last_input_tokens + new_msg_tokens
+            return self._last_input_tokens
+        return estimate_context_tokens(context)
 
     async def _spawn_background_agent(
         self,
@@ -900,6 +932,9 @@ class Runtime:
                     data={"error": "No response from LLM"},
                 )
                 return
+
+            self._accumulate_usage(response)
+            self._last_message_count = len(context.messages)
 
             if not response.tool_calls:
                 logger.warning(

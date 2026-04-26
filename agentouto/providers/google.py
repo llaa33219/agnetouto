@@ -11,7 +11,7 @@ from agentouto.context import Attachment, Context, ToolCall
 from agentouto.exceptions import ProviderError
 from agentouto.model_metadata import resolve_max_output_tokens
 from agentouto.provider import Provider
-from agentouto.providers import LLMResponse, ProviderBackend
+from agentouto.providers import LLMResponse, ProviderBackend, Usage
 
 _JSON_TYPE_MAP: dict[str, int] = {
     "string": 1,
@@ -93,7 +93,14 @@ class GoogleBackend(ProviderBackend):
             elif part.text:
                 content_text = (content_text or "") + part.text
 
-        return LLMResponse(content=content_text, tool_calls=parsed_calls)
+        usage: Usage | None = None
+        if response.usage_metadata:
+            usage = Usage(
+                input_tokens=response.usage_metadata.prompt_token_count,
+                output_tokens=response.usage_metadata.candidates_token_count,
+            )
+
+        return LLMResponse(content=content_text, tool_calls=parsed_calls, usage=usage)
 
 
 def _build_attachment_parts(attachments: list[Attachment]) -> list[Any]:
